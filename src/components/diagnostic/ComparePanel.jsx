@@ -1,6 +1,7 @@
 import React, { useMemo, useRef } from 'react';
 import { GitCompareArrows, ArrowRightLeft } from 'lucide-react';
 import StitchCanvas from './StitchCanvas';
+import ComparisonExportButton from './ComparisonExportButton';
 
 function DiffRow({ label, a, b }) {
   const va = a ?? '—';
@@ -29,8 +30,10 @@ export default function ComparePanel({ analysisA, analysisB }) {
 
   if (!analysisA || !analysisB) {
     return (
-      <div className="flex items-center gap-2 rounded-lg border border-[#1e2130] bg-[#0d0f14] p-4 text-[11px] text-slate-500">
-        <GitCompareArrows className="h-4 w-4" /> Carga dos archivos (A y B) para compararlos.
+      <div className="flex items-center gap-3 rounded-lg border border-[#1e2130] bg-[#0d0f14] p-4 text-[11px] text-slate-500">
+        <GitCompareArrows className="h-4 w-4" />
+        <span className="flex-1">Carga dos archivos (A y B) para compararlos.</span>
+        <ComparisonExportButton analysisA={analysisA} analysisB={analysisB} />
       </div>
     );
   }
@@ -57,6 +60,7 @@ export default function ComparePanel({ analysisA, analysisB }) {
         <div className="ml-auto flex items-center gap-3 text-[10px]">
           <span className="flex items-center gap-1 text-violet-300"><span className="inline-block h-0.5 w-4 bg-violet-400" /> A · {analysisA.meta?.name}</span>
           <span className="flex items-center gap-1 text-cyan-300"><span className="inline-block h-0.5 w-4 bg-cyan-400" /> B · {analysisB.meta?.name}</span>
+          <ComparisonExportButton analysisA={analysisA} analysisB={analysisB} />
         </div>
       </div>
 

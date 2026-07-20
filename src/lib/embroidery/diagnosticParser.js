@@ -13,6 +13,16 @@
  */
 
 const UNIT_MM = 0.1; // one step == 0.1 mm for both DST and DSB
+export const DIAGNOSTIC_PARSER_VERSION = '2.2.0';
+export const DIAGNOSTIC_PARSER_CONFIG = Object.freeze({
+  jumpLimitMm: 5,
+  jumpToleranceMm: 0.01,
+  stitchLimitMm: 7,
+  coverageGridMm: 0.5,
+  highOccupancyRatio: 0.6,
+  lateCoverageRatio: 0.6,
+  envelopeToleranceMm: 0.5,
+});
 
 // ---------------------------------------------------------------------------
 // Header parsing (shared by DST / DSB — both use the Tajima-style 512 ASCII hdr)
@@ -127,7 +137,6 @@ function parseDST(bytes) {
   let colorChangeCount = 0;
   let trimCount = 0;
   let sequinCount = 0;
-  let seenRecordAfterEnd = false;
   let recordsTotal = 0;
 
   const start = Math.min(512, bytes.length);
@@ -419,13 +428,26 @@ function dist(ax, ay, bx, by) {
   return Math.hypot(bx - ax, by - ay);
 }
 
+function normalizeDstOrientation(parsed) {
+  const geom = parsed.geometry;
+  const declared = parsed.header?.declaredDimensions;
+  const measured = computeExtents(geom);
+  if (!geom || !declared || !measured || measured.w === measured.h) return { parsed, axisSwapApplied: false };
+  const directError = Math.abs(measured.w - declared.w) + Math.abs(measured.h - declared.h);
+  const swappedError = Math.abs(measured.h - declared.w) + Math.abs(measured.w - declared.h);
+  if (swappedError + 0.1 >= directError) return { parsed, axisSwapApplied: false };
+  const geometry = { ...geom, xs: Float32Array.from(geom.ys), ys: Float32Array.from(geom.xs) };
+  return { parsed: { ...parsed, geometry }, axisSwapApplied: true };
+}
+
 function detectRisks(parsed, coverage) {
   const risks = [];
   const geom = parsed.geometry;
   if (!geom || geom.count < 2) return risks;
 
-  const JUMP_LIMIT_MM = 5;
-  const STITCH_LIMIT_MM = 7;
+  const JUMP_LIMIT_MM = DIAGNOSTIC_PARSER_CONFIG.jumpLimitMm;
+  const JUMP_TOLERANCE_MM = DIAGNOSTIC_PARSER_CONFIG.jumpToleranceMm;
+  const STITCH_LIMIT_MM = DIAGNOSTIC_PARSER_CONFIG.stitchLimitMm;
   const ZERO_LEN = 0;
   const REPEAT_LIMIT = 4;
   const DENSITY_LIMIT = 60; // penetrations per mm² cell flagged
@@ -447,7 +469,7 @@ function detectRisks(parsed, coverage) {
 
     if (t === 1) {
       // jump
-      if (d > JUMP_LIMIT_MM) {
+      if (d > JUMP_LIMIT_MM + JUMP_TOLERANCE_MM) {
         jumpsOver5++;
         if (d > maxJump) { maxJump = d; maxJumpSample = { from: { x: ax, y: ay }, to: { x: bx, y: by }, idx: i }; }
       }
@@ -477,8 +499,8 @@ function detectRisks(parsed, coverage) {
   if (jumpsOver5 > 0) {
     risks.push({
       level: 'high', code: 'JUMP_GT_5MM',
-      message: `${jumpsOver5} saltos superiores a ${JUMP_LIMIT_MM} mm (máx ${maxJump.toFixed(2)} mm).`,
-      count: jumpsOver5, max: maxJump, sample: maxJumpSample,
+      message: `${jumpsOver5} saltos materialmente superiores a ${JUMP_LIMIT_MM} mm (tolerancia ${JUMP_TOLERANCE_MM.toFixed(2)} mm; máx ${maxJump.toFixed(3)} mm).`,
+      count: jumpsOver5, max: maxJump, limit: JUMP_LIMIT_MM, tolerance: JUMP_TOLERANCE_MM, sample: maxJumpSample,
     });
   }
   if (stitchesOver7 > 0) {
@@ -532,11 +554,18 @@ function detectRisks(parsed, coverage) {
     });
   }
 
-  // Layer coverage (specific + generic) — uses precomputed coverage suspects.
-  if (coverage && coverage.suspects.length > 0) {
+  if (coverage?.highOccupancy.length > 0) {
+    risks.push({
+      level: 'low', code: 'HIGH_BLOCK_OCCUPANCY',
+      message: `${coverage.highOccupancy.length} bloque(s) presentan ocupación cosida alta; por sí sola no implica que cubran capas anteriores.`,
+      count: coverage.highOccupancy.length,
+      samples: coverage.highOccupancy.slice(0, 5),
+    });
+  }
+  if (coverage?.suspects.length > 0) {
     risks.push({
       level: 'medium', code: 'LAYER_COVERAGE',
-      message: `${coverage.suspects.length} bloque(s) sospechosos de capa de cobertura (>60% de la envolvente o proporción anómala frente a bloques previos).`,
+      message: `${coverage.suspects.length} bloque(s) tardíos cubren más del 60% de la unión cosida aproximada de bloques anteriores.`,
       count: coverage.suspects.length,
       samples: coverage.suspects.slice(0, 5),
     });
@@ -553,7 +582,8 @@ function detectRisks(parsed, coverage) {
       let outOfBounds = 0; let outSample = null;
       for (let i = 0; i < geom.count; i++) {
         const xx = xs[i], yy = ys[i];
-        if (xx < loX - 0.5 || xx > hiX + 0.5 || yy < loY - 0.5 || yy > hiY + 0.5) {
+        const tolerance = DIAGNOSTIC_PARSER_CONFIG.envelopeToleranceMm;
+        if (xx < loX - tolerance || xx > hiX + tolerance || yy < loY - tolerance || yy > hiY + tolerance) {
           outOfBounds++;
           if (!outSample) outSample = { x: xx, y: yy, idx: i };
         }
@@ -587,46 +617,59 @@ function computeLongJumps(geom) {
   return out.sort((a, b) => b.distance - a.distance).slice(0, 50);
 }
 
+function rasterizeBlock(geom, block, gridMm) {
+  const cells = new Set();
+  const { xs, ys, types } = geom;
+  for (let i = block.start; i < block.end && i < geom.count; i++) {
+    if (types[i] !== 0) continue;
+    const ax = i > 0 ? xs[i - 1] : xs[i];
+    const ay = i > 0 ? ys[i - 1] : ys[i];
+    const bx = xs[i], by = ys[i];
+    const steps = Math.max(1, Math.ceil(dist(ax, ay, bx, by) / (gridMm / 2)));
+    for (let s = 0; s <= steps; s++) {
+      const x = ax + ((bx - ax) * s) / steps;
+      const y = ay + ((by - ay) * s) / steps;
+      cells.add(`${Math.floor(x / gridMm)},${Math.floor(y / gridMm)}`);
+    }
+  }
+  return cells;
+}
+
 function computeCoverageBlocks(parsed) {
   const geom = parsed.geometry;
-  if (!geom || geom.count === 0 || !parsed.blocks || parsed.blocks.length === 0) {
-    return { blocks: [], suspects: [] };
-  }
-  const ext = computeExtents(geom);
-  if (!ext) return { blocks: [], suspects: [] };
-  const totalArea = Math.max(ext.w * ext.h, 1e-6);
-  const { xs, ys } = geom;
+  const blocks = parsed.blocks || [];
+  if (!geom || geom.count === 0 || blocks.length === 0) return { blocks: [], suspects: [], highOccupancy: [] };
+  const gridMm = DIAGNOSTIC_PARSER_CONFIG.coverageGridMm;
+  const cellSets = blocks.map((block) => rasterizeBlock(geom, block, gridMm));
+  const allCells = new Set(cellSets.flatMap((cells) => Array.from(cells)));
+  const previousUnion = new Set();
   const infos = [];
-  for (let bi = 0; bi < parsed.blocks.length; bi++) {
-    const blk = parsed.blocks[bi];
-    let bminX = Infinity, bminY = Infinity, bmaxX = -Infinity, bmaxY = -Infinity;
-    let pts = 0;
-    for (let i = blk.start; i < blk.end && i < geom.count; i++) {
-      const xx = xs[i], yy = ys[i];
-      if (xx < bminX) bminX = xx; if (yy < bminY) bminY = yy;
-      if (xx > bmaxX) bmaxX = xx; if (yy > bmaxY) bmaxY = yy;
-      pts++;
-    }
-    if (bminX === Infinity) continue;
-    const area = (bmaxX - bminX) * (bmaxY - bminY);
-    infos.push({ index: bi, colorIndex: blk.colorIndex, area: +area.toFixed(3), ratio: area / totalArea, points: pts });
-  }
-  const lateThreshold = Math.max(0, Math.floor(infos.length * 0.6) - 1);
   const suspects = [];
-  for (let i = 0; i < infos.length; i++) {
-    const info = infos[i];
-    const reasons = [];
-    if (info.ratio > 0.6) reasons.push('COVERS_GT_60_ENVELOPE');
-    if (i >= lateThreshold && info.ratio > 0.6) reasons.push('LATE_BLOCK_GT_60');
-    if (i > 0 && i >= lateThreshold) {
-      const prevAvg = infos.slice(0, i).reduce((s, b) => s + b.area, 0) / i;
-      if (prevAvg > 0 && info.area > prevAvg * 2) reasons.push('ABNORMAL_VS_PREVIOUS');
+  const highOccupancy = [];
+  for (let i = 0; i < blocks.length; i++) {
+    const cells = cellSets[i];
+    let overlap = 0;
+    for (const cell of cells) if (previousUnion.has(cell)) overlap++;
+    const occupancyRatio = allCells.size ? cells.size / allCells.size : 0;
+    const previousCoverageRatio = previousUnion.size ? overlap / previousUnion.size : 0;
+    const info = {
+      index: i,
+      colorIndex: blocks[i].colorIndex,
+      points: blocks[i].end - blocks[i].start,
+      occupiedCells: cells.size,
+      occupiedAreaMm2: +(cells.size * gridMm * gridMm).toFixed(3),
+      occupancyRatio: +occupancyRatio.toFixed(4),
+      previousUnionCells: previousUnion.size,
+      previousCoverageRatio: +previousCoverageRatio.toFixed(4),
+    };
+    infos.push(info);
+    if (occupancyRatio > DIAGNOSTIC_PARSER_CONFIG.highOccupancyRatio) highOccupancy.push(info);
+    if (blocks.length >= 2 && i > 0 && previousUnion.size > 0 && previousCoverageRatio > DIAGNOSTIC_PARSER_CONFIG.lateCoverageRatio) {
+      suspects.push({ ...info, reasons: ['LATE_BLOCK_GT_60'] });
     }
-    if (reasons.length > 0) {
-      suspects.push({ ...info, percent: Math.round(info.ratio * 100), reasons: Array.from(new Set(reasons)) });
-    }
+    for (const cell of cells) previousUnion.add(cell);
   }
-  return { blocks: infos, suspects };
+  return { blocks: infos, suspects, highOccupancy };
 }
 
 // ---------------------------------------------------------------------------
@@ -649,8 +692,12 @@ export function detectFormat(name, bytes) {
 export function analyzeFile({ name, bytes, sha256 }) {
   const format = detectFormat(name, bytes);
   let parsed;
-  if (format === 'dst') parsed = parseDST(bytes);
-  else if (format === 'dsb') parsed = parseDSB(bytes);
+  let axisSwapApplied = false;
+  if (format === 'dst') {
+    const normalized = normalizeDstOrientation(parseDST(bytes));
+    parsed = normalized.parsed;
+    axisSwapApplied = normalized.axisSwapApplied;
+  } else if (format === 'dsb') parsed = parseDSB(bytes);
   else parsed = parseJsonFile(bytes, name);
 
   const geom = parsed.geometry;
@@ -681,6 +728,7 @@ export function analyzeFile({ name, bytes, sha256 }) {
     validationSummary: parsed.validationSummary || null,
     errors: parsed.errors || [],
     warnings: parsed.warnings || [],
+    parser: { version: DIAGNOSTIC_PARSER_VERSION, config: { ...DIAGNOSTIC_PARSER_CONFIG }, axisSwapApplied },
     analysisDate: new Date().toISOString(),
   };
 }
