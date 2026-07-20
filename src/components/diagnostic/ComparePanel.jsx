@@ -2,6 +2,7 @@ import React, { useMemo, useRef } from 'react';
 import { GitCompareArrows, ArrowRightLeft } from 'lucide-react';
 import StitchCanvas from './StitchCanvas';
 import ComparisonExportButton from './ComparisonExportButton';
+import { compareDiagnosticBlocks } from '@/lib/diagnosticComparison';
 
 function DiffRow({ label, a, b }) {
   const va = a ?? '—';
@@ -41,14 +42,9 @@ export default function ComparePanel({ analysisA, analysisB }) {
   const sa = analysisA.summary, sb = analysisB.summary;
   const ea = sa?.extents, eb = sb?.extents;
 
-  // Blocks unique to A / B by colorIndex + approximate stitch count.
   const blocksA = analysisA.blocks || [];
   const blocksB = analysisB.blocks || [];
-  const keyOf = (blk, geom) => `${blk.colorIndex}:${blk.end - blk.start}`;
-  const setA = new Set(blocksA.map((b) => keyOf(b, analysisA.geometry)));
-  const setB = new Set(blocksB.map((b) => keyOf(b, analysisB.geometry)));
-  const onlyA = blocksA.filter((b) => !setB.has(keyOf(b, analysisA.geometry)));
-  const onlyB = blocksB.filter((b) => !setA.has(keyOf(b, analysisB.geometry)));
+  const { changedBlocks, blocksOnlyInA: onlyA, blocksOnlyInB: onlyB } = compareDiagnosticBlocks(analysisA, analysisB);
 
   return (
     <div className="space-y-3">
@@ -83,6 +79,17 @@ export default function ComparePanel({ analysisA, analysisB }) {
         <DiffRow label="Pos. final Y" a={sa?.finalPosition?.y?.toFixed?.(2)} b={sb?.finalPosition?.y?.toFixed?.(2)} />
       </div>
 
+      <div className="rounded-lg border border-[#1e2130] bg-[#0d0f14] p-3">
+        <div className="mb-1 text-[10px] uppercase tracking-wide text-amber-400">Bloques modificados</div>
+        {changedBlocks.length === 0 ? <div className="text-[10px] text-slate-600">Sin cambios de métricas.</div> : changedBlocks.map((block) => (
+          <div key={block.index} className="grid grid-cols-7 gap-2 border-t border-[#1e2130] py-1.5 text-[10px] font-mono text-slate-300">
+            <span>#{block.index}</span><span>color {block.colorA}/{block.colorB}</span><span>pts {block.pointsA}/{block.pointsB}</span>
+            <span>st {block.stitchesA}/{block.stitchesB}</span><span>jp {block.jumpsA}/{block.jumpsB}</span>
+            <span>occ {block.occupancyA}/{block.occupancyB}</span><span>{block.differencePercentage}%</span>
+          </div>
+        ))}
+      </div>
+
       <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
         <div className="rounded-lg border border-[#1e2130] bg-[#0d0f14] p-3">
           <div className="mb-1 flex items-center gap-1.5 text-[10px] uppercase tracking-wide text-violet-400">
@@ -91,7 +98,7 @@ export default function ComparePanel({ analysisA, analysisB }) {
           {onlyA.length === 0 ? <div className="text-[10px] text-slate-600">Sin bloques exclusivos.</div> : (
             <div className="space-y-1">
               {onlyA.map((b, i) => (
-                <div key={i} className="text-[10px] text-slate-300 font-mono">color {b.colorIndex} · {b.end - b.start} pts</div>
+                <div key={i} className="text-[10px] text-slate-300 font-mono">#{b.index} · color {b.colorIndex} · {b.points} pts</div>
               ))}
             </div>
           )}
@@ -103,7 +110,7 @@ export default function ComparePanel({ analysisA, analysisB }) {
           {onlyB.length === 0 ? <div className="text-[10px] text-slate-600">Sin bloques exclusivos.</div> : (
             <div className="space-y-1">
               {onlyB.map((b, i) => (
-                <div key={i} className="text-[10px] text-slate-300 font-mono">color {b.colorIndex} · {b.end - b.start} pts</div>
+                <div key={i} className="text-[10px] text-slate-300 font-mono">#{b.index} · color {b.colorIndex} · {b.points} pts</div>
               ))}
             </div>
           )}

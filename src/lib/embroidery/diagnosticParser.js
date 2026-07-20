@@ -19,6 +19,7 @@ export const DIAGNOSTIC_PARSER_CONFIG = Object.freeze({
   jumpToleranceMm: 0.01,
   stitchLimitMm: 7,
   coverageGridMm: 0.5,
+  coverageBufferMm: 0.6,
   highOccupancyRatio: 0.6,
   lateCoverageRatio: 0.6,
   envelopeToleranceMm: 0.5,
@@ -556,18 +557,26 @@ function detectRisks(parsed, coverage) {
 
   if (coverage?.highOccupancy.length > 0) {
     risks.push({
-      level: 'low', code: 'HIGH_BLOCK_OCCUPANCY',
-      message: `${coverage.highOccupancy.length} bloque(s) presentan ocupación cosida alta; por sí sola no implica que cubran capas anteriores.`,
+      level: 'low', code: 'HIGH_OCCUPANCY_BLOCK',
+      message: `${coverage.highOccupancy.length} bloque(s) presentan ocupación física alta; por sí sola no implica una capa tardía.`,
       count: coverage.highOccupancy.length,
       samples: coverage.highOccupancy.slice(0, 5),
     });
   }
   if (coverage?.suspects.length > 0) {
     risks.push({
-      level: 'medium', code: 'LAYER_COVERAGE',
-      message: `${coverage.suspects.length} bloque(s) tardíos cubren más del 60% de la unión cosida aproximada de bloques anteriores.`,
+      level: 'medium', code: 'LATE_COVERING_LAYER',
+      message: `${coverage.suspects.length} bloque(s) tardíos cumplen al menos dos criterios de cobertura sobre bloques anteriores.`,
       count: coverage.suspects.length,
       samples: coverage.suspects.slice(0, 5),
+    });
+  }
+  if (coverage?.abnormalComplexity.length > 0) {
+    risks.push({
+      level: 'medium', code: 'ABNORMAL_BLOCK_COMPLEXITY',
+      message: `${coverage.abnormalComplexity.length} bloque(s) tienen complejidad anómala frente a la mediana anterior.`,
+      count: coverage.abnormalComplexity.length,
+      samples: coverage.abnormalComplexity.slice(0, 5),
     });
   }
 
@@ -622,8 +631,8 @@ function rasterizeBlock(geom, block, gridMm) {
   const { xs, ys, types } = geom;
   for (let i = block.start; i < block.end && i < geom.count; i++) {
     if (types[i] !== 0) continue;
-    const ax = i > 0 ? xs[i - 1] : xs[i];
-    const ay = i > 0 ? ys[i - 1] : ys[i];
+    const ax = i > block.start ? xs[i - 1] : xs[i];
+    const ay = i > block.start ? ys[i - 1] : ys[i];
     const bx = xs[i], by = ys[i];
     const steps = Math.max(1, Math.ceil(dist(ax, ay, bx, by) / (gridMm / 2)));
     for (let s = 0; s <= steps; s++) {
@@ -635,41 +644,95 @@ function rasterizeBlock(geom, block, gridMm) {
   return cells;
 }
 
+function bufferCells(cells, gridMm, radiusMm) {
+  const buffered = new Set();
+  const radiusCells = Math.ceil(radiusMm / gridMm);
+  for (const key of cells) {
+    const [cx, cy] = key.split(',').map(Number);
+    for (let dx = -radiusCells; dx <= radiusCells; dx++) {
+      for (let dy = -radiusCells; dy <= radiusCells; dy++) {
+        if (Math.hypot(dx * gridMm, dy * gridMm) <= radiusMm + gridMm / 2) buffered.add(`${cx + dx},${cy + dy}`);
+      }
+    }
+  }
+  return buffered;
+}
+
+function median(values) {
+  if (values.length === 0) return 0;
+  const sorted = [...values].sort((a, b) => a - b);
+  const mid = Math.floor(sorted.length / 2);
+  return sorted.length % 2 ? sorted[mid] : (sorted[mid - 1] + sorted[mid]) / 2;
+}
+
+function blockEnvelope(geom, block) {
+  let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+  for (let i = block.start; i < block.end && i < geom.count; i++) {
+    if (geom.types[i] !== 0) continue;
+    minX = Math.min(minX, geom.xs[i]); minY = Math.min(minY, geom.ys[i]);
+    maxX = Math.max(maxX, geom.xs[i]); maxY = Math.max(maxY, geom.ys[i]);
+  }
+  return minX === Infinity ? null : { minX, minY, maxX, maxY };
+}
+
 function computeCoverageBlocks(parsed) {
   const geom = parsed.geometry;
   const blocks = parsed.blocks || [];
-  if (!geom || geom.count === 0 || blocks.length === 0) return { blocks: [], suspects: [], highOccupancy: [] };
+  if (!geom || geom.count === 0 || blocks.length === 0) return { blocks: [], suspects: [], highOccupancy: [], abnormalComplexity: [] };
   const gridMm = DIAGNOSTIC_PARSER_CONFIG.coverageGridMm;
-  const cellSets = blocks.map((block) => rasterizeBlock(geom, block, gridMm));
-  const allCells = new Set(cellSets.flatMap((cells) => Array.from(cells)));
+  const bufferMm = DIAGNOSTIC_PARSER_CONFIG.coverageBufferMm;
+  const rawSets = blocks.map((block) => rasterizeBlock(geom, block, gridMm));
+  const bufferedSets = rawSets.map((cells) => bufferCells(cells, gridMm, bufferMm));
+  const allBuffered = new Set(bufferedSets.flatMap((cells) => Array.from(cells)));
   const previousUnion = new Set();
-  const infos = [];
-  const suspects = [];
-  const highOccupancy = [];
+  const infos = [], suspects = [], highOccupancy = [], abnormalComplexity = [];
   for (let i = 0; i < blocks.length; i++) {
-    const cells = cellSets[i];
-    let overlap = 0;
-    for (const cell of cells) if (previousUnion.has(cell)) overlap++;
-    const occupancyRatio = allCells.size ? cells.size / allCells.size : 0;
-    const previousCoverageRatio = previousUnion.size ? overlap / previousUnion.size : 0;
+    const block = blocks[i], buffered = bufferedSets[i], envelope = blockEnvelope(geom, block);
+    const pointCount = block.end - block.start;
+    let segmentCount = 0, bufferedOverlap = 0, envelopeOverlap = 0;
+    for (let p = block.start; p < block.end && p < geom.count; p++) if (geom.types[p] === 0) segmentCount++;
+    for (const cell of buffered) if (previousUnion.has(cell)) bufferedOverlap++;
+    if (envelope && previousUnion.size) for (const key of previousUnion) {
+      const [cx, cy] = key.split(',').map(Number);
+      const x = (cx + 0.5) * gridMm, y = (cy + 0.5) * gridMm;
+      if (x >= envelope.minX && x <= envelope.maxX && y >= envelope.minY && y <= envelope.maxY) envelopeOverlap++;
+    }
+    const previousPointMedian = median(infos.map((x) => x.pointCount));
+    const previousSegmentMedian = median(infos.map((x) => x.segmentCount));
+    const pointRatio = previousPointMedian ? pointCount / previousPointMedian : 0;
+    const segmentRatio = previousSegmentMedian ? segmentCount / previousSegmentMedian : 0;
+    const bufferedArea = buffered.size * gridMm * gridMm;
+    const previousArea = previousUnion.size * gridMm * gridMm;
+    const criteria = [];
+    const bufferedPreviousCoverageRatio = previousUnion.size ? bufferedOverlap / previousUnion.size : 0;
+    const envelopeOverlapWithPreviousUnion = previousUnion.size ? envelopeOverlap / previousUnion.size : 0;
+    if (bufferedPreviousCoverageRatio >= 0.5) criteria.push('BUFFERED_PREVIOUS_COVERAGE_GTE_50');
+    if (envelopeOverlapWithPreviousUnion >= 0.7) criteria.push('ENVELOPE_OVERLAP_GTE_70');
+    if (pointRatio >= 3) criteria.push('POINT_COUNT_GTE_3X_PREVIOUS_MEDIAN');
+    if (previousArea > 0 && bufferedArea >= previousArea * 0.4) criteria.push('BUFFERED_AREA_GTE_40_PREVIOUS_UNION');
+    const classifications = [];
+    const occupancyRatio = allBuffered.size ? buffered.size / allBuffered.size : 0;
+    if (occupancyRatio > DIAGNOSTIC_PARSER_CONFIG.highOccupancyRatio) classifications.push('HIGH_OCCUPANCY_BLOCK');
+    if (i > 0 && (pointRatio >= 3 || segmentRatio >= 3)) classifications.push('ABNORMAL_BLOCK_COMPLEXITY');
+    if (blocks.length >= 2 && i > 0 && previousUnion.size > 0 && criteria.length >= 2) classifications.push('LATE_COVERING_LAYER');
     const info = {
-      index: i,
-      colorIndex: blocks[i].colorIndex,
-      points: blocks[i].end - blocks[i].start,
-      occupiedCells: cells.size,
-      occupiedAreaMm2: +(cells.size * gridMm * gridMm).toFixed(3),
-      occupancyRatio: +occupancyRatio.toFixed(4),
-      previousUnionCells: previousUnion.size,
-      previousCoverageRatio: +previousCoverageRatio.toFixed(4),
+      index: i, colorIndex: block.colorIndex, pointCount, segmentCount,
+      occupiedCells: rawSets[i].size, occupiedAreaMm2: +(rawSets[i].size * gridMm * gridMm).toFixed(3),
+      bufferedOccupiedCells: buffered.size, bufferedOccupiedAreaMm2: +bufferedArea.toFixed(3),
+      bufferedOverlapWithPreviousUnion: bufferedOverlap,
+      bufferedPreviousCoverageRatio: +bufferedPreviousCoverageRatio.toFixed(4),
+      envelopeOverlapWithPreviousUnion: +envelopeOverlapWithPreviousUnion.toFixed(4),
+      pointCountVersusPreviousMedian: +pointRatio.toFixed(3),
+      segmentCountVersusPreviousMedian: +segmentRatio.toFixed(3),
+      classifications, reasons: criteria,
     };
     infos.push(info);
-    if (occupancyRatio > DIAGNOSTIC_PARSER_CONFIG.highOccupancyRatio) highOccupancy.push(info);
-    if (blocks.length >= 2 && i > 0 && previousUnion.size > 0 && previousCoverageRatio > DIAGNOSTIC_PARSER_CONFIG.lateCoverageRatio) {
-      suspects.push({ ...info, reasons: ['LATE_BLOCK_GT_60'] });
-    }
-    for (const cell of cells) previousUnion.add(cell);
+    if (classifications.includes('HIGH_OCCUPANCY_BLOCK')) highOccupancy.push(info);
+    if (classifications.includes('ABNORMAL_BLOCK_COMPLEXITY')) abnormalComplexity.push(info);
+    if (classifications.includes('LATE_COVERING_LAYER')) suspects.push(info);
+    for (const cell of buffered) previousUnion.add(cell);
   }
-  return { blocks: infos, suspects, highOccupancy };
+  return { blocks: infos, suspects, highOccupancy, abnormalComplexity };
 }
 
 // ---------------------------------------------------------------------------
