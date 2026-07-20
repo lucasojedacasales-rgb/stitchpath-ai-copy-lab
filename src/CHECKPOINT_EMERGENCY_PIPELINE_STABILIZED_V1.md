@@ -1,0 +1,16 @@
+# CHECKPOINT_EMERGENCY_PIPELINE_STABILIZED_V1
+
+appLoads=true
+editorAppears=true
+exportNotBlockedByFalseReasons=true
+referenceLearningManual=true
+stpFilesNotAutoProcessed=true
+vectorizationNotRepeatedAutomatically=true
+exportModalOpens=true
+motorChanged=false
+encodersChanged=false
+qualityVisualUnchanged=true
+regionOrderOptimizerApplied=false
+stitchReductionApplied=false
+
+Checkpoint created after emergency stabilization and quarantine of reference learning.

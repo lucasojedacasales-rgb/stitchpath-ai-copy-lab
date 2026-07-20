@@ -1,0 +1,26 @@
+CHECKPOINT_EXPORT_PERFORMANCE_STABLE_BEFORE_QUALITY_PHASE_1
+
+Status: stable baseline before QUALITY_PHASE_1_INPUT_SEGMENTATION_CLEANUP_V1
+
+Reason:
+- App loads correctly.
+- Export produces machine-recognized files.
+- DST and DSB export pipelines must remain untouched.
+- Performance/cache/lazy-loading recovery must remain untouched.
+
+Do not change from this checkpoint:
+- DST export
+- DSB export
+- encoders
+- ExportModal
+- backend export
+- V5.1 export repair
+- performance/cache/lazy loading
+- Reference Learning
+- .stp parsing
+- advanced stitch planner
+- underlay
+- splitter
+- satin converter
+- knockout
+- local long stitch repair

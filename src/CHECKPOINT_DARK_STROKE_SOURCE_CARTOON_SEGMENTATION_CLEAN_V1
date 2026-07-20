@@ -1,0 +1,13 @@
+CHECKPOINT_DARK_STROKE_SOURCE_CARTOON_SEGMENTATION_CLEAN_V1
+
+phaseAccepted=true
+
+Stable checkpoint after applying DARK_STROKE_SOURCE_AND_CARTOON_SEGMENTATION_CLEANUP_V1:
+- darkStroke now resolves to originalUploadUrl / thumbnail_url before image_url fallback.
+- new uploads persist config.originalUploadUrl and thumbnail_url before any mask is applied.
+- masked images remain usable for preview/vectorization but are not selected for darkStroke when original exists.
+- large edge-connected dark background components are removed before strict contour extraction.
+- false outer contour fragments are capped/rejected while preserving the strongest supported dark contour chains.
+- cartoon segmentation removes tiny unsupported/noisy regions and merges near-identical thread colors.
+
+No export encoders, ExportModal, DSB/DST logic, backend response handling, universal validation, Reference Learning, V5.1, knockout, layer order, machine profile, .stp, or local long-stitch repair were modified.

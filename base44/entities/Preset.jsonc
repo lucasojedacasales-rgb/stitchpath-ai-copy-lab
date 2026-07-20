@@ -1,0 +1,45 @@
+{
+  "name": "Preset",
+  "type": "object",
+  "properties": {
+    "name": {
+      "type": "string"
+    },
+    "icon": {
+      "type": "string"
+    },
+    "notes": {
+      "type": "string"
+    },
+    "stitch_type": {
+      "type": "string",
+      "enum": [
+        "fill",
+        "satin",
+        "running_stitch"
+      ]
+    },
+    "density": {
+      "type": "number"
+    },
+    "angle": {
+      "type": "number"
+    },
+    "pull_compensation": {
+      "type": "number"
+    },
+    "underlay": {
+      "type": "boolean"
+    },
+    "is_system": {
+      "type": "boolean",
+      "default": false
+    }
+  },
+  "required": [
+    "name",
+    "stitch_type",
+    "density",
+    "angle"
+  ]
+}

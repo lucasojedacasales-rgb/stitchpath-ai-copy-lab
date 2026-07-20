@@ -1,0 +1,13 @@
+# CHECKPOINT_DIAGNOSTIC_DATA_BUNDLE_READY_V1
+
+checkpointCreated=true
+engineModified=false
+vectorizationModified=false
+stitchesModified=false
+exportModified=false
+encodersModified=false
+referenceLearningModified=false
+stpFilesModified=false
+mainUiModifiedOnlyDiagnosticButton=true
+requiredFiles=FINAL_COMMANDS_CANONICAL.json,COLOR_SEQUENCE_ANALYSIS.md,LAYER_ORDER_ANALYSIS.md,EXPORTED_BINARY_AUDIT.md,PROMPT_CONTEXT_SUMMARY.md
+criterion=El botón Exportar paquete diagnóstico genera archivos descargables de solo lectura desde finalEmbroideryCommands canónicos.

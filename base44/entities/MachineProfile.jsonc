@@ -1,0 +1,51 @@
+{
+  "name": "MachineProfile",
+  "type": "object",
+  "properties": {
+    "brand": {
+      "type": "string"
+    },
+    "model": {
+      "type": "string"
+    },
+    "hoop_sizes": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string"
+          },
+          "w_mm": {
+            "type": "number"
+          },
+          "h_mm": {
+            "type": "number"
+          }
+        }
+      }
+    },
+    "max_speed_spm": {
+      "type": "number"
+    },
+    "formats": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "max_colors": {
+      "type": "number"
+    },
+    "max_stitches": {
+      "type": "number"
+    },
+    "notes": {
+      "type": "string"
+    }
+  },
+  "required": [
+    "brand",
+    "model"
+  ]
+}

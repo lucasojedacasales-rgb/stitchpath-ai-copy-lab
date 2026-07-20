@@ -1,0 +1,17 @@
+CHECKPOINT_BEFORE_QUALITY_PHASE_2_LAYER_KNOCKOUT_AND_THREAD_ORDER_V1
+
+Created before applying QUALITY_PHASE_2_LAYER_KNOCKOUT_AND_THREAD_ORDER_V1.
+
+Protected areas for this phase:
+- export DST/DSB
+- encoders
+- ExportModal
+- universal validation
+- V5.1
+- performance
+- cache
+- lazy loading
+- reference learning
+- .stp files
+- export engine
+- closed GitHub audit work

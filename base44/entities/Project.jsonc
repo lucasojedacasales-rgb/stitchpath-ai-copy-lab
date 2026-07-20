@@ -1,0 +1,76 @@
+{
+  "name": "Project",
+  "type": "object",
+  "properties": {
+    "name": {
+      "type": "string"
+    },
+    "image_url": {
+      "type": "string"
+    },
+    "thumbnail_url": {
+      "type": "string"
+    },
+    "fabric_type": {
+      "type": "string",
+      "enum": [
+        "Algod\u00f3n",
+        "Poli\u00e9ster",
+        "Mezcla",
+        "Denim",
+        "Lino",
+        "Seda",
+        "Lycra",
+        "Otro"
+      ]
+    },
+    "width_mm": {
+      "type": "number"
+    },
+    "height_mm": {
+      "type": "number"
+    },
+    "color_count": {
+      "type": "number"
+    },
+    "digitize_mode": {
+      "type": "string",
+      "enum": [
+        "hybrid",
+        "ultra",
+        "standard",
+        "precision",
+        "potrace"
+      ]
+    },
+    "regions": {
+      "type": "array",
+      "items": {
+        "type": "object"
+      }
+    },
+    "config": {
+      "type": "object"
+    },
+    "total_stitches": {
+      "type": "number"
+    },
+    "step": {
+      "type": "number",
+      "default": 1
+    },
+    "status": {
+      "type": "string",
+      "enum": [
+        "draft",
+        "processing",
+        "ready",
+        "exported"
+      ],
+      "default": "draft"
+    }
+  },
+  "required": [
+    "name"
+  ]
+}

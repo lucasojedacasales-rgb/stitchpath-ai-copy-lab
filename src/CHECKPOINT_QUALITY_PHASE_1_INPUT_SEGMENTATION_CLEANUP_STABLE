@@ -1,0 +1,33 @@
+CHECKPOINT_QUALITY_PHASE_1_INPUT_SEGMENTATION_CLEANUP_STABLE
+
+Status: stable
+phaseAccepted=true
+
+Preserved:
+- export DST untouched
+- export DSB untouched
+- encoders untouched
+- ExportModal untouched
+- backend export untouched
+- V5.1 untouched
+- performance/cache/lazy loading untouched
+- Reference Learning untouched
+- .stp untouched
+- stitch planner advanced behavior untouched
+- underlay untouched
+- splitter untouched
+- satin converter untouched
+- knockout not applied
+- local long stitch repair not applied
+
+Applied:
+- input source audit for original/image/processed/masked/darkStroke source
+- masked darkStroke source prevention
+- pre-stitch-planner quality cleanup stage
+- dark edge/background noise region removal
+- false contour reduction/capping
+- black region classification
+- cartoon palette merge to <=6 target colors
+- false microregion removal with important-detail guards
+
+Build validation: passed

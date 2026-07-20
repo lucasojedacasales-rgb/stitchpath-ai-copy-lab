@@ -1,0 +1,274 @@
+{
+  "name": "DigitizationDecision",
+  "type": "object",
+  "properties": {
+    "design_name": {
+      "type": "string",
+      "description": "Nombre del dise\u00f1o que se digitaliz\u00f3"
+    },
+    "design_dimensions_mm": {
+      "type": "object",
+      "properties": {
+        "width": {
+          "type": "number"
+        },
+        "height": {
+          "type": "number"
+        }
+      }
+    },
+    "digitize_mode": {
+      "type": "string",
+      "enum": [
+        "hybrid",
+        "ultra",
+        "standard",
+        "precision",
+        "potrace"
+      ]
+    },
+    "region_count": {
+      "type": "number"
+    },
+    "total_stitches": {
+      "type": "number"
+    },
+    "engine_decisions": {
+      "type": "object",
+      "properties": {
+        "contour_engine": {
+          "type": "object",
+          "properties": {
+            "min_area_px": {
+              "type": "number",
+              "description": "M\u00ednimo \u00e1rea en p\u00edxeles para detectar detalles"
+            },
+            "min_area_relative": {
+              "type": "number",
+              "description": "M\u00ednimo relativo al \u00e1rea total"
+            },
+            "max_colors": {
+              "type": "number",
+              "description": "Clustering de colores K-means"
+            },
+            "corner_angle_deg": {
+              "type": "number"
+            },
+            "rdp_epsilon_base": {
+              "type": "number"
+            },
+            "chaikin_passes": {
+              "type": "number"
+            }
+          }
+        },
+        "vector_engine": {
+          "type": "object",
+          "properties": {
+            "color_weights": {
+              "type": "array",
+              "items": {
+                "type": "number"
+              }
+            },
+            "density_factor": {
+              "type": "number"
+            }
+          }
+        },
+        "region_builder": {
+          "type": "object",
+          "properties": {
+            "satin_compact_wide": {
+              "type": "number",
+              "description": "Threshold compacidad para satin_fill wide"
+            },
+            "satin_compact_medium": {
+              "type": "number",
+              "description": "Threshold compacidad para satin_fill medium"
+            },
+            "satin_width_wide_mm": {
+              "type": "number"
+            },
+            "satin_width_medium_mm": {
+              "type": "number"
+            }
+          }
+        },
+        "renderer": {
+          "type": "object",
+          "properties": {
+            "canvas_background": {
+              "type": "string",
+              "description": "Color fondo canvas"
+            },
+            "thread_diameter_mm": {
+              "type": "number"
+            },
+            "thread_px_scale": {
+              "type": "number"
+            },
+            "tatami_row_spacing_mm": {
+              "type": "number"
+            },
+            "satin_column_spacing_mm": {
+              "type": "number"
+            }
+          }
+        }
+      }
+    },
+    "quality_assessment": {
+      "type": "object",
+      "properties": {
+        "detail_visibility": {
+          "type": "string",
+          "enum": [
+            "LOW",
+            "MEDIUM",
+            "HIGH"
+          ]
+        },
+        "color_separation": {
+          "type": "string",
+          "enum": [
+            "POOR",
+            "GOOD",
+            "EXCELLENT"
+          ]
+        },
+        "layer_integrity": {
+          "type": "string",
+          "enum": [
+            "ISSUES",
+            "GOOD",
+            "PERFECT"
+          ]
+        },
+        "stitch_distribution": {
+          "type": "string",
+          "enum": [
+            "UNEVEN",
+            "ACCEPTABLE",
+            "BALANCED"
+          ]
+        },
+        "overall_rating": {
+          "type": "number",
+          "minimum": 1,
+          "maximum": 10
+        },
+        "notes": {
+          "type": "string"
+        }
+      }
+    },
+    "region_analysis": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "region_id": {
+            "type": "string"
+          },
+          "color_hex": {
+            "type": "string"
+          },
+          "stitch_type": {
+            "type": "string",
+            "enum": [
+              "fill",
+              "satin",
+              "running_stitch"
+            ]
+          },
+          "area_mm2": {
+            "type": "number"
+          },
+          "perimeter_mm": {
+            "type": "number"
+          },
+          "compacidad": {
+            "type": "number"
+          },
+          "inertia_ratio": {
+            "type": "number"
+          },
+          "assigned_angle": {
+            "type": "number"
+          },
+          "assigned_priority": {
+            "type": "number"
+          },
+          "visual_quality": {
+            "type": "string",
+            "enum": [
+              "POOR",
+              "ACCEPTABLE",
+              "GOOD",
+              "EXCELLENT"
+            ]
+          }
+        }
+      }
+    },
+    "improvements_applied": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "date": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "change": {
+            "type": "string"
+          },
+          "parameter": {
+            "type": "string"
+          },
+          "old_value": {},
+          "new_value": {},
+          "impact": {
+            "type": "string",
+            "enum": [
+              "MAJOR",
+              "MINOR",
+              "CRITICAL"
+            ]
+          },
+          "description": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    "lessons_learned": {
+      "type": "object",
+      "properties": {
+        "what_worked": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "what_failed": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "optimal_settings_for_design_type": {
+          "type": "string",
+          "description": "Recomendaciones para dise\u00f1os similares"
+        }
+      }
+    }
+  },
+  "required": [
+    "design_name",
+    "digitize_mode",
+    "engine_decisions",
+    "quality_assessment"
+  ]
+}

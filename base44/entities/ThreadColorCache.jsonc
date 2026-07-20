@@ -1,0 +1,48 @@
+{
+  "name": "ThreadColorCache",
+  "type": "object",
+  "properties": {
+    "brand": {
+      "type": "string",
+      "enum": [
+        "brother",
+        "janome",
+        "madeira",
+        "aurifil"
+      ]
+    },
+    "code": {
+      "type": "string"
+    },
+    "name": {
+      "type": "string"
+    },
+    "hex": {
+      "type": "string"
+    },
+    "r": {
+      "type": "number"
+    },
+    "g": {
+      "type": "number"
+    },
+    "b": {
+      "type": "number"
+    },
+    "L": {
+      "type": "number"
+    },
+    "A": {
+      "type": "number"
+    },
+    "B": {
+      "type": "number"
+    }
+  },
+  "required": [
+    "brand",
+    "code",
+    "name",
+    "hex"
+  ]
+}

@@ -1,0 +1,35 @@
+# CHECKPOINT_PRE_TATAMI_REBUILDER_RESTORED_V1
+
+revertApplied=true
+checkpointUsed=manual_revert_to_pre_REGION_SAFE_TATAMI_FILL_REBUILDER_V1
+fillGeneratorRestored=true
+visualRegressionRemoved=true
+referenceLearningPreserved=true
+professionalModePreserved=true
+encodersUnchanged=true
+exportLogicUnchanged=true
+validationUniversalUnchanged=true
+exportModalUnchanged=true
+simularUnchanged=true
+finalLookUnchanged=true
+v51Unchanged=true
+stpFilesUntouched=true
+
+totalCommands=19381
+totalStitches=17238
+totalJumps=1523
+totalTrims=596
+totalColors=10
+maxVisibleStitchMm=5.214
+maxFillSegmentMm=4.000
+visibleDiagonalStitches=164
+severeVisibleLongStitchCount=0
+unsupportedLongStitches=0
+fillOutsideRegionCount=42
+finalLookExportMismatch=false
+exportBlocked=false
+universalStatus=VALID
+formatStatusDST=VALID
+formatStatusDSB=VALID
+
+Stable restored checkpoint before Tatami Rebuilder.

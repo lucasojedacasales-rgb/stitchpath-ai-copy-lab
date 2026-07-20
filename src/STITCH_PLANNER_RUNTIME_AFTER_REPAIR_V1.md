@@ -1,0 +1,23 @@
+# STITCH_PLANNER_RUNTIME_AFTER_REPAIR_V1
+
+totalStitches=runtime_measured_by_finalEmbroideryCommands
+totalJumps=runtime_measured_by_finalEmbroideryCommands
+totalTrims=runtime_measured_by_finalEmbroideryCommands
+totalColors=runtime_measured_by_finalEmbroideryCommands
+maxVisibleStitchMm=runtime_target_<=8.0_ideal_<=6.5
+macroCriticalLongStitches=0_required_for_accepted_repair
+severeVisibleLongStitchCount=0_required_or_improved_for_accepted_repair
+visibleLongStitchCount=runtime_must_drop_or_not_increase
+fillOutsideRegionCount=runtime_must_not_increase
+crossRegionStitchCount=runtime_measured
+exportAllowed=true_when_no_hard_command_file_error_remains
+universalStatus=unchanged_diagnostic_layer
+formatStatusDST=unchanged_encoder_and_format_layer
+formatStatusDSB=unchanged_encoder_and_format_layer
+simulationMatchesFinalCommands=true
+finalLookMatchesFinalCommands=true
+exportUsesSameCommandSequence=true
+
+## Runtime source
+The new pass writes its runtime metrics to professionalPlannerRepairReport on the buildFinalCommands result and logs:
+[PROFESSIONAL_STITCH_PLANNER_REPAIR_V1] accepted=<true|false> beforeMax=<mm> afterMax=<mm> macro <before>→<after>

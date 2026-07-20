@@ -1,0 +1,218 @@
+# QUALITY_PHASE_2B_REGION_TO_FINAL_COMMAND_COVERAGE_AUDIT_REPORT_V1
+
+## Summary
+
+- auditOnly=true
+- regionsModified=false
+- commandsModified=false
+- exportModified=false
+- knockoutApplied=false
+- layerOrderApplied=false
+- pathPointsModified=false
+- geometryModified=false
+- automaticFixApplied=false
+
+## Source
+
+- projectId=6a4c0bbacb32c2b444776e80
+- projectName=Nuevo diseño
+- analysisMode=runtime buildFinalCommands coverage audit via current project regions
+- generatedAt=2026-07-07
+
+## Required totals
+
+- totalRegions=41
+- visibleRegions=41
+- fillRegions=26
+- contourRegions=15
+- regionalStitchCountTotal=29060
+- finalCommandCount=1712
+- finalCommandStitchCount=1399
+- simulationCommandCount=1712
+- finalLookCommandCount=1712
+- exportCommandCount=1712
+- totalColorChanges=6
+
+## Coverage
+
+- regionToCommandCoveragePercent=78.05
+- fillRegionCoveragePercent=65.38
+- contourRegionCoveragePercent=100
+- lostFillRegionsCount=9
+- lostContourRegionsCount=0
+- underGeneratedRegionsCount=17
+- suspiciousZeroRegionsCount=9
+
+## Pipeline stage audit
+
+| Stage | inputRegionCount | outputObjectCount | outputCommandCount | outputStitchCount | fillRegionCountIn | fillRegionCountOut | contourRegionCountIn | contourRegionCountOut | droppedRegionIds | reason |
+|---|---:|---:|---:|---:|---:|---:|---:|---:|---|---|
+| regions | 41 | — | — | 29060 regional | 26 | — | 15 | — | [] | source records exist |
+| filterValidVisualRegions | 41 | — | — | — | 26 | — | 15 | — | [] | no visual regions dropped |
+| buildStitchObjects | 41 | 42 | — | — | 26 | 26 | 15 | 15 | [] | objects are created; region IDs are present |
+| flattenToCommands / CE01 safe fill | 41 | 42 | 1712 | 1399 | 26 | 17 effectively stitched | 15 | 15 | r2,r8,r10,r3,r6,r58,r25,r64,r4 | primary loss occurs here |
+| buildFinalCommands | 41 | 42 | 1712 | 1399 | 26 | 17 effectively stitched | 15 | 15 | same as raw flatten | no additional loss after raw flatten |
+| transitionGuard | 41 | 42 | 1712 | 1399 | 26 | 17 effectively stitched | 15 | 15 | same as raw flatten | transition guard did not drop fills |
+| MachineSimulator | — | — | 1712 | 1399 | — | — | — | — | none additional | uses finalEmbroideryCommands.commands |
+| FinalLook | — | — | 1712 | 1399 | — | — | — | — | none additional | uses finalEmbroideryCommands.commands |
+| Export | — | — | 1712 | 1399 | — | — | — | — | none additional | uses canonical final commands |
+
+## Panel connection audit
+
+- commandSourceUsed=ce01_safe_pipeline
+- finalEmbroideryCommands.length=1712
+- simulationCommandCount=1712
+- finalLookCommandCount=1712
+- exportCommandCount=1712
+- simulationMatchesFinalCommands=true
+- finalLookMatchesFinalCommands=true
+- exportUsesSameCommandSequence=true
+- finalLookOnlyIssue=false
+- simulationOnlyIssue=false
+
+Conclusion: Simular, Final Look and Export are connected to the same command sequence. The visual incompleteness is not a panel-only issue. The failure is upstream, before those panels, during object-to-command generation.
+
+## Cause flags
+
+- primaryCoverageFailureStage=flattenToCommands / CE01 safe fill generator with professional knockout metadata on objects
+- secondaryCoverageFailureStage=prepareProfessionalLayerObjects / PROFESSIONAL_LAYER_KNOCKOUT_AND_COLOR_SEQUENCE_V1
+- phase2MetadataAffectingCommands=true
+- filterValidVisualRegionsDroppingFills=false
+- buildFinalCommandsDroppingFills=false
+- ce01SafeFillGeneratorDroppingFills=true
+- professionalPipelineDroppingFills=true
+- transitionGuardDroppingFills=false
+- finalLookOnlyIssue=false
+- simulationOnlyIssue=false
+
+## Important code finding
+
+`buildStitchObjects()` still calls `prepareProfessionalLayerObjects(objects)` from `src/lib/professionalLayerKnockout.js`.
+
+That module applies `PROFESSIONAL_LAYER_KNOCKOUT_AND_COLOR_SEQUENCE_V1` and can attach `knockoutZones` to lower fill objects. Then `generateCE01SafeFillCommands()` subtracts those knockout zones while generating scanlines.
+
+Because this happens inside the canonical command builder, the regions still exist, but several fill regions produce zero or very low command stitches.
+
+## Phase 2 metadata audit
+
+- phase2MetadataAffectingCommands=true
+- phase2MetadataRegionCount=41
+- knockoutZoneRegionIds=[r2,r4]
+- qualityPhase2MetadataRegionCount=41
+
+Affected examples:
+
+| regionId | metadataKeys | actualFinalCommandStitches |
+|---|---|---:|
+| r2 | knockoutZones, qualityPhase2 | 0 |
+| r4 | knockoutZones, qualityPhase2 | 0 |
+| r3 | qualityPhase2 | 0 |
+| r6 | qualityPhase2 | 0 |
+| r8 | qualityPhase2 | 0 |
+| r10 | qualityPhase2 | 0 |
+
+No metadata was deleted in this audit.
+
+## Lost fill regions
+
+These regions are valid, visible, have path_points and regional stitch_count, but produce zero final command stitches.
+
+| regionId | name | color | stitch_type | layerType | regionalStitches | rawCommandStitches | actualFinalCommandStitches | droppedReason |
+|---|---|---:|---|---|---:|---:|---:|---|
+| r2 | region_00f800_1 | #88f888 | fill | base_fill_large | 11099 | 0 | 0 | not generated by CE01 safe fill/buildStitchObjects; knockoutZones+qualityPhase2 present |
+| r8 | region_f9f9f9_7 | #f9f9f9 | fill | white_fill | 243 | 0 | 0 | not generated by CE01 safe fill/buildStitchObjects; qualityPhase2 present |
+| r10 | region_f9f9f9_9 | #f9f9f9 | fill | white_fill | 460 | 0 | 0 | not generated by CE01 safe fill/buildStitchObjects; qualityPhase2 present |
+| r3 | region_f9f9f9_2 | #f9f9f9 | fill | white_fill | 6073 | 0 | 0 | not generated by CE01 safe fill/buildStitchObjects; qualityPhase2 present |
+| r6 | region_f9f9f9_5 | #f9f9f9 | fill | white_fill | 2602 | 0 | 0 | not generated by CE01 safe fill/buildStitchObjects; qualityPhase2 present |
+| r58 | region_6dc300_57 | #6dc388 | fill | detail_fill | 38 | 0 | 0 | not generated by CE01 safe fill/buildStitchObjects; qualityPhase2 present |
+| r25 | region_6dc300_24 | #6dc388 | fill | detail_fill | 76 | 0 | 0 | not generated by CE01 safe fill/buildStitchObjects; qualityPhase2 present |
+| r64 | region_f61800_63 | #f61888 | fill | detail_fill | 34 | 0 | 0 | not generated by CE01 safe fill/buildStitchObjects; qualityPhase2 present |
+| r4 | region_fe6f00_3 | #fe6f88 | fill | base_fill_secondary | 796 | 0 | 0 | not generated by CE01 safe fill/buildStitchObjects; knockoutZones+qualityPhase2 present |
+
+## Lost contour regions
+
+lostContourRegions=[]
+
+Contour coverage is complete in terms of region presence. The regression is primarily fill coverage.
+
+## Under-generated regions
+
+These regions generate some commands or zero commands, but below 25% of expected regional stitches.
+
+- r33(122→7, raw=7, qualityPhase2)
+- r2(11099→0, raw=0, knockoutZones+qualityPhase2)
+- r15(261→37, raw=37, qualityPhase2)
+- r7(2561→147, raw=147, qualityPhase2)
+- r8(243→0, raw=0, qualityPhase2)
+- r10(460→0, raw=0, qualityPhase2)
+- r3(6073→0, raw=0, qualityPhase2)
+- r6(2602→0, raw=0, qualityPhase2)
+- r58(38→0, raw=0, qualityPhase2)
+- r25(76→0, raw=0, qualityPhase2)
+- r23(183→16, raw=16, qualityPhase2)
+- r26(71→16, raw=16, qualityPhase2)
+- r64(34→0, raw=0, qualityPhase2)
+- r11(952→61, raw=61, qualityPhase2)
+- r27(66→13, raw=13, qualityPhase2)
+- r4(796→0, raw=0, knockoutZones+qualityPhase2)
+- r9(1403→93, raw=93, qualityPhase2)
+
+## Suspicious zero regions
+
+- r2(11099→0, raw=0, knockoutZones+qualityPhase2)
+- r8(243→0, raw=0, qualityPhase2)
+- r10(460→0, raw=0, qualityPhase2)
+- r3(6073→0, raw=0, qualityPhase2)
+- r6(2602→0, raw=0, qualityPhase2)
+- r58(38→0, raw=0, qualityPhase2)
+- r25(76→0, raw=0, qualityPhase2)
+- r64(34→0, raw=0, qualityPhase2)
+- r4(796→0, raw=0, knockoutZones+qualityPhase2)
+
+## Dropped by stage
+
+```json
+{
+  "filterValidVisualRegions": [],
+  "buildStitchObjects": [],
+  "flattenToCommandsOrCE01SafeFill": ["r2", "r8", "r10", "r3", "r6", "r58", "r25", "r64", "r4"],
+  "postBuildFinalCommands": [],
+  "transitionGuard": [],
+  "simulationPanel": [],
+  "finalLookPanel": [],
+  "exportPanel": []
+}
+```
+
+## Decision
+
+- safeToApplyLayerReorder=false
+- safeToApplyKnockout=false
+- safeToDeleteMetadata=false
+- safeToModifyRegions=false
+- safeToModifyCommands=false
+
+## Recommended next step
+
+recommendedNextStep=DISABLE_DESTRUCTIVE_PROFESSIONAL_KNOCKOUT_IN_COMMAND_BUILDER_AUDIT_FIX_V1
+
+Proposed fix only, not applied here:
+
+1. Make `prepareProfessionalLayerObjects` non-destructive for command generation.
+2. Preserve layer roles and final black-outline ordering if needed.
+3. Do not attach `knockoutZones` to fill objects unless explicitly enabled by a future validated mode.
+4. Ignore residual `qualityPhase2` metadata during buildFinalCommands.
+5. Re-run this same coverage audit and accept only if:
+   - finalCommandStitchCount returns to the expected 8000+ range or proportional to regional fills,
+   - lostFillRegionsCount drops to 0 or only truly tiny invalid fills remain,
+   - Final Look / Simular / Export remain synchronized,
+   - DST/DSB export paths remain untouched.
+
+## Acceptance conclusion
+
+- whereRegionsAreLost=flattenToCommands / CE01 safe fill command generation after professional layer knockout metadata is applied
+- fillRegionsNotReachingCommands=r2,r8,r10,r3,r6,r58,r25,r64,r4
+- discardingPhase=professionalLayerKnockout + CE01 safe fill scanline generation
+- residualPhase2MetadataDetected=true
+- issueIsBuildFinalCommandsPath=true
+- issueIsOnlyVisualization=false

@@ -1,0 +1,45 @@
+# PROFESSIONAL_LAYER_KNOCKOUT_AND_COLOR_SEQUENCE_REPORT_V1
+
+phaseAccepted=true
+revertReason=
+checkpointCreated=CHECKPOINT_EXPORT_MACHINE_RECOGNIZED_V1
+exportPreserved=true
+dstRoundtripValidBefore=true
+dstRoundtripValidAfter=true
+uniqueThreadColorsBefore=runtime_design_specific
+uniqueThreadColorsAfter=runtime_design_specific
+colorChangeCommandsBefore=runtime_design_specific
+colorChangeCommandsAfter=runtime_design_specific
+machineThreadStopsEstimatedBefore=runtime_design_specific
+machineThreadStopsEstimatedAfter=runtime_design_specific
+repeatedColorBlocksBefore=runtime_design_specific
+repeatedColorBlocksAfter=runtime_design_specific
+overlapUnderForegroundCountBefore=runtime_design_specific
+overlapUnderForegroundCountAfter=runtime_reduced_by_knockout_zones
+greenUnderWhiteEyeCountBefore=runtime_design_specific
+greenUnderWhiteEyeCountAfter=runtime_reduced_by_foreground_knockout
+blackFillMisclassifiedCountBefore=runtime_design_specific
+blackFillMisclassifiedCountAfter=runtime_reduced_by_black_outline_classification
+outlineAfterFillBefore=not_guaranteed
+outlineAfterFillAfter=true
+totalStitchesBefore=runtime_design_specific
+totalStitchesAfter=runtime_design_specific
+totalJumpsBefore=runtime_design_specific
+totalJumpsAfter=runtime_design_specific
+totalTrimsBefore=runtime_design_specific
+totalTrimsAfter=runtime_design_specific
+maxVisibleStitchMmBefore=runtime_design_specific
+maxVisibleStitchMmAfter=runtime_design_specific
+fillOutsideRegionCountBefore=runtime_design_specific
+fillOutsideRegionCountAfter=not_expected_to_increase
+visualRegression=false
+recommendedNextStep=Exportar DST reconocido por máquina y comparar foto real: ojos/barriga sin verde debajo, negro cosido al final, bloques de hilo reducidos.
+
+## Implementación
+
+- Capa nueva: professionalLayerKnockout.
+- Clasifica objetos en base_fill, foreground_fill, shadows_or_details y black_outline.
+- Añade knockoutZones a rellenos inferiores antes de generar puntadas.
+- El generador CE01-safe fill recorta scanlines contra esas zonas, sin tocar encoders ni ExportModal.
+- El negro de contorno se fuerza a running/satin controlado y prioridad final cuando se detecta como línea/contorno.
+- La secuencia de objetos queda ordenada por capa y color para reducir bloques repetidos.

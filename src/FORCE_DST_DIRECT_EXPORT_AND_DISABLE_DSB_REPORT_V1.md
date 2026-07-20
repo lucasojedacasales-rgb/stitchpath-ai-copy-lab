@@ -1,0 +1,52 @@
+# FORCE_DST_DIRECT_EXPORT_AND_DISABLE_DSB_REPORT_V1
+
+## Forced format decision
+
+dstForcedAsRecommended=true
+dsbDisabled=true
+dsbDisabledReason="stitchPaths array required"
+recommendedFormatShownInUI="DST listo para prueba"
+exportButtonLabel="Exportar DST"
+
+## DST direct export path
+
+dstUsesFrontendEncoder=true
+dstBypassesBackend=true
+dstBypassesAtob=true
+dstBypassesAdaptiveOptimizer=true
+dstUsesCanonicalCommands=true
+
+## Runtime command metrics
+
+canonicalStitches=runtime_from_canonicalFinalCommands
+canonicalJumps=runtime_from_canonicalFinalCommands
+canonicalTrims=runtime_from_canonicalFinalCommands
+canonicalColorChanges=runtime_from_canonicalFinalCommands
+
+## Runtime binary verification before download
+
+dstBlobSizeBytes=runtime_checked_must_be_greater_than_512
+dstHeaderValid=runtime_checked_true_required
+dstRecordLengthValid=runtime_checked_true_required
+dstEndPresent=runtime_checked_true_required
+dstDownloadWorks=true
+atobErrorAfter=false
+
+## Scope controls
+
+motorUnchanged=true
+visualPipelineUnchanged=true
+encodersChangedOnlyForDSTDirectDownload=true
+backendDSBFixAttempted=false
+referenceLearningTouched=false
+vectorizationTouched=false
+stitchPlannerTouched=false
+canonicalCommandsRegenerated=false
+
+## Acceptance result
+
+buttonDownloadsDSTWithoutAtob=true
+backendNotCalledForDST=true
+dsbNotRecommended=true
+dsbDisabledInFormatSelector=true
+realDSTBlobDownloaded=true

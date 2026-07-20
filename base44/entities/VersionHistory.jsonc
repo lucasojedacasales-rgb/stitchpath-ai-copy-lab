@@ -1,0 +1,25 @@
+{
+  "name": "VersionHistory",
+  "type": "object",
+  "properties": {
+    "project_id": {
+      "type": "string"
+    },
+    "label": {
+      "type": "string"
+    },
+    "description": {
+      "type": "string"
+    },
+    "snapshot": {
+      "type": "object"
+    },
+    "step": {
+      "type": "number"
+    }
+  },
+  "required": [
+    "project_id",
+    "label"
+  ]
+}

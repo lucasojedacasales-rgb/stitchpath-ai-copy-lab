@@ -1,0 +1,27 @@
+CHECKPOINT_APP_PERFORMANCE_RECOVERY_V1_STABLE
+
+Status: stable
+Scope: performance-only UI/cache recovery
+
+Confirmed unchanged:
+- vectorization
+- stitch planner
+- stitch generation
+- DST/DSB export path
+- encoders
+- Reference Learning
+- STP files
+- knockout
+- layer order
+- visual output rules
+- universal validation behavior
+
+Applied:
+- stable final command cache
+- darkStroke deferred cache
+- unified metrics cache
+- MachineSimulator analysis/prefix stats optimization
+- FinalLook object map and chunked render
+- StitchCanvas cache preservation on zoom/pan and throttled hover
+- RegionsPanel virtualization
+- lazy technical lab panels
