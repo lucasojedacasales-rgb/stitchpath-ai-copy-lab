@@ -11,6 +11,8 @@ const Dashboard = lazy(() => import('./pages/Dashboard'));
 const Editor = lazy(() => import('./pages/Editor'));
 const RegressionTestPage = lazy(() => import('./pages/RegressionTestPage'));
 const ReferenceLearningPage = lazy(() => import('./pages/ReferenceLearning'));
+const EngineV2DiagnosticLab = lazy(() => import('./pages/EngineV2DiagnosticLab'));
+import ProtectedRoute from '@/components/ProtectedRoute';
 
 const AuthenticatedApp = () => {
   const { isLoadingAuth, isLoadingPublicSettings, authError, navigateToLogin } = useAuth();
@@ -35,6 +37,9 @@ const AuthenticatedApp = () => {
         <Route path="/editor/:id" element={<Editor />} />
         <Route path="/regression" element={<RegressionTestPage />} />
         <Route path="/reference-learning" element={<ReferenceLearningPage />} />
+        <Route path="/engine-v2-diagnostic-lab" element={<ProtectedRoute />}>
+          <Route index element={<EngineV2DiagnosticLab />} />
+        </Route>
         <Route path="*" element={<PageNotFound />} />
       </Routes>
     </Suspense>
