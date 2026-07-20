@@ -1,0 +1,7 @@
+import React from 'react';
+import { Lightbulb } from 'lucide-react';
+import { TECHNIQUE_LABELS } from '@/lib/objectStitchEditor';
+export default function ProposalPanel({object,onApply}) {
+  if(!object) return null; const p=object.proposal;
+  return <section className="rounded-lg border border-cyan-700/50 bg-cyan-950/20 p-3"><div className="flex items-center gap-2 text-xs font-bold text-cyan-200"><Lightbulb className="h-4 w-4"/>Propuesta automática</div><div className="mt-2 flex items-center justify-between"><span className="text-sm font-bold">{TECHNIQUE_LABELS[p.technique]}</span><span className="text-xs text-cyan-300">{Math.round(p.confidence*100)}% confianza</span></div><ul className="mt-2 list-disc pl-4 text-[11px] text-secondary-foreground">{p.reasons.map(x=><li key={x}>{x}</li>)}</ul><p className="mt-2 text-[10px] text-muted-foreground">Alternativas: {p.alternatives.map(x=>TECHNIQUE_LABELS[x]).join(', ')}</p><button onClick={()=>onApply({technique:p.technique})} disabled={object.manualTechnique} className="mt-3 min-h-11 w-full cursor-pointer rounded border border-cyan-600 px-3 text-xs font-bold text-cyan-200 disabled:cursor-not-allowed disabled:opacity-40">{object.manualTechnique?'Decisión manual protegida':'Aplicar propuesta'}</button></section>;
+}

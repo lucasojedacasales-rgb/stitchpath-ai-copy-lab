@@ -1,0 +1,18 @@
+import React from 'react';
+import { TECHNIQUES, TECHNIQUE_LABELS } from '@/lib/objectStitchEditor';
+const tatami=[['spacing','Spacing / densidad'],['stitchLength','Longitud objetivo'],['angle','Ángulo'],['borderInset','Inset de borde'],['compensation','Compensación'],['passes','Pasadas'],['underlaySpacing','Spacing underlay']];
+const satin=[['width','Anchura'],['density','Densidad'],['compensation','Compensación'],['widthLimit','Límite de anchura']];
+const running=[['stitchLength','Longitud de puntada'],['passes','Pasadas']];
+function NumberFields({fields,parameters,onChange}) { return <div className="grid grid-cols-2 gap-2">{fields.map(([key,label])=><label key={key} className="text-[10px] text-muted-foreground">{label}<input type="number" step="0.1" value={parameters[key]} onChange={e=>onChange({[key]:Number(e.target.value)})} className="mt-1 w-full rounded border border-input bg-background px-2 py-2 text-xs text-foreground"/></label>)}</div>; }
+function Check({label,value,onChange}) { return <label className="flex min-h-11 cursor-pointer items-center gap-2 text-xs"><input type="checkbox" checked={value} onChange={e=>onChange(e.target.checked)} className="accent-primary"/>{label}</label>; }
+export default function TechniqueEditor({object,onUpdate,onParameters}) {
+  if(!object) return <div className="rounded-lg border border-border bg-card p-4 text-sm text-muted-foreground">Selecciona un objeto para editarlo.</div>;
+  const p=object.parameters, fields=object.technique==='tatami'?tatami:['satin','zigzag','contour_satin'].includes(object.technique)?satin:running;
+  return <section className="space-y-3 rounded-lg border border-border bg-card p-3"><h2 className="text-xs font-bold">Técnica y parámetros</h2>
+    <label htmlFor="technique" className="block text-[10px] text-muted-foreground">Técnica</label><select id="technique" value={object.technique} onChange={e=>onUpdate({technique:e.target.value})} className="w-full rounded border border-input bg-background px-2 py-2 text-xs">{TECHNIQUES.map(x=><option key={x} value={x}>{TECHNIQUE_LABELS[x]}</option>)}</select>
+    <NumberFields fields={fields} parameters={p} onChange={onParameters}/>
+    {object.technique==='tatami'&&<label className="block text-[10px] text-muted-foreground">Patrón de filas<select value={p.rowPattern} onChange={e=>onParameters({rowPattern:e.target.value})} className="mt-1 w-full rounded border border-input bg-background px-2 py-2 text-xs"><option value="alternado">Alternado</option><option value="alineado">Alineado</option><option value="random">Desfasado</option></select></label>}
+    {['tatami','satin','zigzag','contour_satin'].includes(object.technique)&&<><Check label="Underlay activado" value={p.underlay} onChange={v=>onParameters({underlay:v})}/><Check label="Dividir columnas anchas" value={p.splitWideColumns} onChange={v=>onParameters({splitWideColumns:v})}/></>}
+    {['running_stitch','triple_running','boundary_only'].includes(object.technique)&&<><label className="block text-[10px] text-muted-foreground">Dirección<select value={p.direction} onChange={e=>onParameters({direction:e.target.value})} className="mt-1 w-full rounded border border-input bg-background px-2 py-2 text-xs"><option value="forward">Adelante</option><option value="reverse">Inversa</option></select></label><Check label="Cerrar trayectoria" value={p.closePath} onChange={v=>onParameters({closePath:v})}/></>}
+  </section>;
+}

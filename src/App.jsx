@@ -12,6 +12,7 @@ const Editor = lazy(() => import('./pages/Editor'));
 const RegressionTestPage = lazy(() => import('./pages/RegressionTestPage'));
 const ReferenceLearningPage = lazy(() => import('./pages/ReferenceLearning'));
 const EngineV2DiagnosticLab = lazy(() => import('./pages/EngineV2DiagnosticLab'));
+const EngineV2ObjectStitchEditor = lazy(() => import('./pages/EngineV2ObjectStitchEditor'));
 import ProtectedRoute from '@/components/ProtectedRoute';
 
 const AuthenticatedApp = () => {
@@ -39,6 +40,9 @@ const AuthenticatedApp = () => {
         <Route path="/reference-learning" element={<ReferenceLearningPage />} />
         <Route path="/engine-v2-diagnostic-lab" element={<ProtectedRoute />}>
           <Route index element={<EngineV2DiagnosticLab />} />
+        </Route>
+        <Route path="/engine-v2-object-stitch-editor" element={<ProtectedRoute />}>
+          <Route index element={<EngineV2ObjectStitchEditor />} />
         </Route>
         <Route path="*" element={<PageNotFound />} />
       </Routes>

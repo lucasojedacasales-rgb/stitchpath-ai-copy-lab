@@ -1,0 +1,15 @@
+import React from 'react';
+import { ArrowDown, ArrowUp } from 'lucide-react';
+function SelectRelation({label,value,objects,current,onChange}) { return <label className="text-[10px] text-muted-foreground">{label}<select value={value} onChange={e=>onChange(e.target.value)} className="mt-1 w-full rounded border border-input bg-background px-2 py-2 text-xs"><option value="">Sin relación</option>{objects.filter(o=>o.id!==current).map(o=><option key={o.id} value={o.id}>{o.name}</option>)}</select></label>; }
+function Check({label,value,onChange}) { return <label className="flex min-h-11 cursor-pointer items-center gap-2 text-xs"><input type="checkbox" checked={value} onChange={e=>onChange(e.target.checked)} className="accent-primary"/>{label}</label>; }
+export default function RelationsEditor({object,objects,onUpdate,onRelations,onMove}) {
+  if(!object) return null; const r=object.relations;
+  return <section className="space-y-3 rounded-lg border border-border bg-card p-3"><h2 className="text-xs font-bold">Orden, solapes y bloqueos</h2>
+    <div className="flex gap-2"><button aria-label="Mover arriba" onClick={()=>onMove(-1)} className="flex min-h-11 flex-1 cursor-pointer items-center justify-center gap-2 rounded border border-border text-xs"><ArrowUp className="h-4 w-4"/>Arriba</button><button aria-label="Mover abajo" onClick={()=>onMove(1)} className="flex min-h-11 flex-1 cursor-pointer items-center justify-center gap-2 rounded border border-border text-xs"><ArrowDown className="h-4 w-4"/>Abajo</button></div>
+    <div className="grid grid-cols-2 gap-2"><SelectRelation label="Coser antes de" value={r.before} objects={objects} current={object.id} onChange={v=>onRelations({before:v})}/><SelectRelation label="Coser después de" value={r.after} objects={objects} current={object.id} onChange={v=>onRelations({after:v})}/></div>
+    <label className="block text-[10px] text-muted-foreground">Solape (mm)<input type="number" step="0.1" value={r.overlapMm} onChange={e=>onRelations({overlapMm:Number(e.target.value)})} className="mt-1 w-full rounded border border-input bg-background px-2 py-2 text-xs"/></label>
+    <SelectRelation label="Recortar del relleno de" value={r.trimFrom} objects={objects} current={object.id} onChange={v=>onRelations({trimFrom:v})}/>
+    <div className="grid grid-cols-2"><Check label="Hueco" value={r.hole} onChange={v=>onRelations({hole:v})}/><Check label="Exclusión" value={r.exclusion} onChange={v=>onRelations({exclusion:v})}/><Check label="Bloquear selección" value={object.locks.selection} onChange={v=>onUpdate({locks:{...object.locks,selection:v}})}/><Check label="Bloquear orden" value={object.locks.order} onChange={v=>onUpdate({locks:{...object.locks,order:v}})}/></div>
+    <label className="block text-[10px] text-muted-foreground">Notas<textarea value={object.notes} onChange={e=>onUpdate({notes:e.target.value})} rows={2} className="mt-1 w-full rounded border border-input bg-background p-2 text-xs"/></label>
+  </section>;
+}
