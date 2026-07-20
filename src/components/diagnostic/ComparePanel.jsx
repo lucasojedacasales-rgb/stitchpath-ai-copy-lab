@@ -74,6 +74,7 @@ export default function ComparePanel({ analysisA, analysisB }) {
         <DiffRow label="Bloques" a={blocksA.length} b={blocksB.length} />
         <DiffRow label="Ancho (mm)" a={ea?.w?.toFixed?.(2)} b={eb?.w?.toFixed?.(2)} />
         <DiffRow label="Alto (mm)" a={ea?.h?.toFixed?.(2)} b={eb?.h?.toFixed?.(2)} />
+        <DiffRow label="Ocupación (mm²)" a={ea ? (ea.w * ea.h).toFixed(2) : null} b={eb ? (eb.w * eb.h).toFixed(2) : null} />
         <DiffRow label="Pos. final X" a={sa?.finalPosition?.x?.toFixed?.(2)} b={sb?.finalPosition?.x?.toFixed?.(2)} />
         <DiffRow label="Pos. final Y" a={sa?.finalPosition?.y?.toFixed?.(2)} b={sb?.finalPosition?.y?.toFixed?.(2)} />
       </div>

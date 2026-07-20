@@ -11,6 +11,7 @@ import RiskPanel from '@/components/diagnostic/RiskPanel';
 import StitchCanvas from '@/components/diagnostic/StitchCanvas';
 import ComparePanel from '@/components/diagnostic/ComparePanel';
 import PhysicalHistoryPanel from '@/components/diagnostic/PhysicalHistoryPanel';
+import DiagnosticExportPanel from '@/components/diagnostic/DiagnosticExportPanel';
 
 // Session cache keyed by SHA-256 (never persisted to DB).
 const sessionCache = new Map();
@@ -201,6 +202,7 @@ export default function EngineV2DiagnosticLab() {
                 </div>
               )}
 
+              {analysis && <DiagnosticExportPanel analysis={analysis} />}
               {analysis?.json && (
                 <JsonInspection json={analysis.json} kind={analysis.summary?.kind} />
               )}
@@ -230,7 +232,7 @@ function Toggle({ active, onClick, icon: Icon, label }) {
         active ? 'border-violet-500/50 bg-violet-900/20 text-violet-200' : 'border-[#2a2d3a] bg-[#0d0f14] text-slate-500'
       }`}
     >
-      {active ? <Eye className="h-3 w-3" /> : <EyeOff className="h-3 w-3" />}
+      {Icon ? <Icon className="h-3 w-3" /> : active ? <Eye className="h-3 w-3" /> : <EyeOff className="h-3 w-3" />}
       {label}
     </button>
   );

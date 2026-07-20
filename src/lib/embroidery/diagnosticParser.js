@@ -189,7 +189,7 @@ function parseDST(bytes) {
     warnings.push('No se encontró el registro END (0xF3) en el archivo.');
   }
   if (recordsAfterEnd > 0) {
-    warnings.push(`Se encontraron ${recordsAfterEnd} registros después del END.`);
+    errors.push(`Se encontraron ${recordsAfterEnd} registros después del END (ignorados, marcados como error estructural).`);
   }
 
   // close final block
@@ -310,7 +310,7 @@ function parseDSB(bytes) {
     warnings.push('No se encontró el registro END (0xF8) en el archivo DSB.');
   }
   if (recordsAfterEnd > 0) {
-    warnings.push(`Se encontraron ${recordsAfterEnd} registros después del END.`);
+    errors.push(`Se encontraron ${recordsAfterEnd} registros después del END (ignorados, marcados como error estructural).`);
   }
   if (xs.length > blockStart) {
     blocks.push({ start: blockStart, end: xs.length, colorIndex });
@@ -419,7 +419,7 @@ function dist(ax, ay, bx, by) {
   return Math.hypot(bx - ax, by - ay);
 }
 
-function detectRisks(parsed) {
+function detectRisks(parsed, coverage) {
   const risks = [];
   const geom = parsed.geometry;
   if (!geom || geom.count < 2) return risks;
@@ -429,18 +429,15 @@ function detectRisks(parsed) {
   const ZERO_LEN = 0;
   const REPEAT_LIMIT = 4;
   const DENSITY_LIMIT = 60; // penetrations per mm² cell flagged
-  const COVERAGE_RATIO = 0.7;
 
   let jumpsOver5 = 0; let maxJump = 0; let maxJumpSample = null;
   let stitchesOver7 = 0; let maxStitch = 0; let maxStitchSample = null;
   let zeroLength = 0;
   let repeatRuns = 0; let maxRepeat = 0;
   let disconnected = 0;
-  let prevWasStitch = false;
-  let repeatStart = -1; let repeatCount = 1;
+  let repeatCount = 1;
 
   const { xs, ys, types } = geom;
-  const px = xs[0], py = ys[0];
 
   for (let i = 1; i < geom.count; i++) {
     const ax = xs[i - 1], ay = ys[i - 1];
@@ -454,7 +451,6 @@ function detectRisks(parsed) {
         jumpsOver5++;
         if (d > maxJump) { maxJump = d; maxJumpSample = { from: { x: ax, y: ay }, to: { x: bx, y: by }, idx: i }; }
       }
-      prevWasStitch = false;
     } else if (t === 0) {
       // stitch segment
       if (d > STITCH_LIMIT_MM) {
@@ -472,13 +468,9 @@ function detectRisks(parsed) {
       } else {
         repeatCount = 1;
       }
-      prevWasStitch = true;
     } else if (t === 2) {
       // color change: connection between disconnected regions if followed by far stitches
       disconnected++;
-      prevWasStitch = false;
-    } else {
-      prevWasStitch = false;
     }
   }
 
@@ -540,34 +532,14 @@ function detectRisks(parsed) {
     });
   }
 
-  // Layer coverage: each color block bbox vs cumulative design extent area
-  const ext = computeExtents(geom);
-  if (ext && parsed.blocks && parsed.blocks.length > 1) {
-    const totalArea = Math.max(ext.w * ext.h, 1e-6);
-    const coverageFlags = [];
-    for (let bi = 0; bi < parsed.blocks.length; bi++) {
-      const blk = parsed.blocks[bi];
-      let bminX = Infinity, bminY = Infinity, bmaxX = -Infinity, bmaxY = -Infinity;
-      for (let i = blk.start; i < blk.end && i < geom.count; i++) {
-        const xx = xs[i], yy = ys[i];
-        if (xx < bminX) bminX = xx; if (yy < bminY) bminY = yy;
-        if (xx > bmaxX) bmaxX = xx; if (yy > bmaxY) bmaxY = yy;
-      }
-      if (bminX === Infinity) continue;
-      const area = (bmaxX - bminX) * (bmaxY - bminY);
-      const ratio = area / totalArea;
-      if (ratio >= COVERAGE_RATIO) {
-        coverageFlags.push({ block: bi, colorIndex: blk.colorIndex, ratio });
-      }
-    }
-    if (coverageFlags.length > 0) {
-      const top = coverageFlags.sort((a, b) => b.ratio - a.ratio).slice(0, 5);
-      risks.push({
-        level: 'medium', code: 'LAYER_COVERAGE',
-        message: `${coverageFlags.length} bloque(s) de color cubren ≥ ${Math.round(COVERAGE_RATIO * 100)}% de la envolvente total.`,
-        count: coverageFlags.length, samples: top,
-      });
-    }
+  // Layer coverage (specific + generic) — uses precomputed coverage suspects.
+  if (coverage && coverage.suspects.length > 0) {
+    risks.push({
+      level: 'medium', code: 'LAYER_COVERAGE',
+      message: `${coverage.suspects.length} bloque(s) sospechosos de capa de cobertura (>60% de la envolvente o proporción anómala frente a bloques previos).`,
+      count: coverage.suspects.length,
+      samples: coverage.suspects.slice(0, 5),
+    });
   }
 
   // Movements outside declared envelope
@@ -600,6 +572,64 @@ function detectRisks(parsed) {
 }
 
 // ---------------------------------------------------------------------------
+// Long jumps + coverage blocks (used by the exportable diagnostic report)
+// ---------------------------------------------------------------------------
+
+function computeLongJumps(geom) {
+  if (!geom || geom.count < 2) return [];
+  const { xs, ys, types } = geom;
+  const out = [];
+  for (let i = 1; i < geom.count; i++) {
+    if (types[i] !== 1) continue;
+    const d = dist(xs[i - 1], ys[i - 1], xs[i], ys[i]);
+    if (d > 5) out.push({ idx: i, from: { x: xs[i - 1], y: ys[i - 1] }, to: { x: xs[i], y: ys[i] }, distance: +d.toFixed(3) });
+  }
+  return out.sort((a, b) => b.distance - a.distance).slice(0, 50);
+}
+
+function computeCoverageBlocks(parsed) {
+  const geom = parsed.geometry;
+  if (!geom || geom.count === 0 || !parsed.blocks || parsed.blocks.length === 0) {
+    return { blocks: [], suspects: [] };
+  }
+  const ext = computeExtents(geom);
+  if (!ext) return { blocks: [], suspects: [] };
+  const totalArea = Math.max(ext.w * ext.h, 1e-6);
+  const { xs, ys } = geom;
+  const infos = [];
+  for (let bi = 0; bi < parsed.blocks.length; bi++) {
+    const blk = parsed.blocks[bi];
+    let bminX = Infinity, bminY = Infinity, bmaxX = -Infinity, bmaxY = -Infinity;
+    let pts = 0;
+    for (let i = blk.start; i < blk.end && i < geom.count; i++) {
+      const xx = xs[i], yy = ys[i];
+      if (xx < bminX) bminX = xx; if (yy < bminY) bminY = yy;
+      if (xx > bmaxX) bmaxX = xx; if (yy > bmaxY) bmaxY = yy;
+      pts++;
+    }
+    if (bminX === Infinity) continue;
+    const area = (bmaxX - bminX) * (bmaxY - bminY);
+    infos.push({ index: bi, colorIndex: blk.colorIndex, area: +area.toFixed(3), ratio: area / totalArea, points: pts });
+  }
+  const lateThreshold = Math.max(0, Math.floor(infos.length * 0.6) - 1);
+  const suspects = [];
+  for (let i = 0; i < infos.length; i++) {
+    const info = infos[i];
+    const reasons = [];
+    if (info.ratio > 0.6) reasons.push('COVERS_GT_60_ENVELOPE');
+    if (i >= lateThreshold && info.ratio > 0.6) reasons.push('LATE_BLOCK_GT_60');
+    if (i > 0 && i >= lateThreshold) {
+      const prevAvg = infos.slice(0, i).reduce((s, b) => s + b.area, 0) / i;
+      if (prevAvg > 0 && info.area > prevAvg * 2) reasons.push('ABNORMAL_VS_PREVIOUS');
+    }
+    if (reasons.length > 0) {
+      suspects.push({ ...info, percent: Math.round(info.ratio * 100), reasons: Array.from(new Set(reasons)) });
+    }
+  }
+  return { blocks: infos, suspects };
+}
+
+// ---------------------------------------------------------------------------
 // Main entry: analyzeFile
 // ---------------------------------------------------------------------------
 
@@ -628,7 +658,9 @@ export function analyzeFile({ name, bytes, sha256 }) {
   const finalPosition = geom && geom.count > 0
     ? { x: geom.xs[geom.count - 1], y: geom.ys[geom.count - 1] }
     : null;
-  const risks = detectRisks({ ...parsed, blocks: parsed.blocks });
+  const longJumps = computeLongJumps(geom);
+  const coverage = computeCoverageBlocks({ ...parsed, blocks: parsed.blocks });
+  const risks = detectRisks({ ...parsed, blocks: parsed.blocks }, coverage);
 
   return {
     meta: { name, format: parsed.format, sizeBytes: bytes.length, sha256 },
@@ -641,11 +673,15 @@ export function analyzeFile({ name, bytes, sha256 }) {
     },
     blocks: parsed.blocks || [],
     risks,
+    longJumps,
+    coverageBlocks: coverage.blocks,
+    suspectBlocks: coverage.suspects,
     json: parsed.json || null,
     planSummary: parsed.planSummary || null,
     validationSummary: parsed.validationSummary || null,
     errors: parsed.errors || [],
     warnings: parsed.warnings || [],
+    analysisDate: new Date().toISOString(),
   };
 }
 
