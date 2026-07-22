@@ -1,0 +1,56 @@
+{
+  "name": "LabTest",
+  "type": "object",
+  "properties": {
+    "name": {
+      "type": "string"
+    },
+    "version": {
+      "type": "string"
+    },
+    "emb_file_url": {
+      "type": "string"
+    },
+    "source_image_url": {
+      "type": "string"
+    },
+    "fabric_profile": {
+      "type": "string"
+    },
+    "dimensions": {
+      "type": "object",
+      "properties": {
+        "width_mm": {
+          "type": "number"
+        },
+        "height_mm": {
+          "type": "number"
+        }
+      }
+    },
+    "test_date": {
+      "type": "string",
+      "format": "date"
+    },
+    "status": {
+      "type": "string",
+      "enum": [
+        "untested",
+        "validation",
+        "approved",
+        "failed"
+      ],
+      "default": "untested"
+    },
+    "notes": {
+      "type": "string"
+    },
+    "is_demo": {
+      "type": "boolean",
+      "default": false
+    }
+  },
+  "required": [
+    "name"
+  ]
+}

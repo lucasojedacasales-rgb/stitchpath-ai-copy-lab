@@ -1,0 +1,108 @@
+{
+  "name": "LabCase",
+  "type": "object",
+  "properties": {
+    "test_id": {
+      "type": "string"
+    },
+    "case_id": {
+      "type": "string"
+    },
+    "geometric_family": {
+      "type": "string"
+    },
+    "name": {
+      "type": "string"
+    },
+    "nominal_width": {
+      "type": "number"
+    },
+    "observed_width": {
+      "type": "number"
+    },
+    "height": {
+      "type": "number"
+    },
+    "area": {
+      "type": "number"
+    },
+    "hole_count": {
+      "type": "number",
+      "default": 0
+    },
+    "island_count": {
+      "type": "number",
+      "default": 0
+    },
+    "minimum_bridge_thickness": {
+      "type": "number"
+    },
+    "top_stitch_type": {
+      "type": "string"
+    },
+    "spacing_mode": {
+      "type": "string"
+    },
+    "spacing_value": {
+      "type": "number"
+    },
+    "automatic_split": {
+      "type": "boolean",
+      "default": false
+    },
+    "underlay_1": {
+      "type": "string"
+    },
+    "underlay_2": {
+      "type": "string"
+    },
+    "compensation": {
+      "type": "number"
+    },
+    "angle": {
+      "type": "number"
+    },
+    "trim_count": {
+      "type": "number"
+    },
+    "jump_count": {
+      "type": "number"
+    },
+    "stitch_count": {
+      "type": "number"
+    },
+    "visual_result": {
+      "type": "string"
+    },
+    "physical_result": {
+      "type": "string"
+    },
+    "confidence": {
+      "type": "number",
+      "minimum": 0,
+      "maximum": 100
+    },
+    "status": {
+      "type": "string",
+      "enum": [
+        "untested",
+        "validation",
+        "approved",
+        "failed"
+      ],
+      "default": "untested"
+    },
+    "notes": {
+      "type": "string"
+    },
+    "is_demo": {
+      "type": "boolean",
+      "default": false
+    }
+  },
+  "required": [
+    "test_id",
+    "case_id",
+    "name"
+  ]
+}

@@ -1,0 +1,42 @@
+{
+  "name": "Evidence",
+  "type": "object",
+  "properties": {
+    "case_id": {
+      "type": "string"
+    },
+    "screenshots": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "emb_file_name": {
+      "type": "string"
+    },
+    "dst_file_name": {
+      "type": "string"
+    },
+    "observations": {
+      "type": "string"
+    },
+    "physical_photos": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "source": {
+      "type": "string",
+      "enum": [
+        "hatch",
+        "own_engine",
+        "physical_test"
+      ]
+    }
+  },
+  "required": [
+    "case_id",
+    "source"
+  ]
+}

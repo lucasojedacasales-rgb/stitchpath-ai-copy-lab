@@ -1,0 +1,35 @@
+{
+  "name": "PhysicalResult",
+  "type": "object",
+  "properties": {
+    "case_id": {
+      "type": "string"
+    },
+    "fabric_profile": {
+      "type": "string"
+    },
+    "result": {
+      "type": "string"
+    },
+    "status": {
+      "type": "string",
+      "enum": [
+        "untested",
+        "validation",
+        "approved",
+        "failed"
+      ],
+      "default": "untested"
+    },
+    "test_date": {
+      "type": "string",
+      "format": "date"
+    },
+    "notes": {
+      "type": "string"
+    }
+  },
+  "required": [
+    "case_id"
+  ]
+}
