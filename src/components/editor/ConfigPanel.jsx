@@ -3,6 +3,7 @@ import { ChevronDown, ChevronRight, Zap, Cpu, Settings, BookMarked, Brain, Loade
 import WorkflowPresetPanel from './WorkflowPresetPanel';
 import { DIGITIZE_MODES, MODE_COLORS } from '@/lib/digitizeModes';
 import { generateProcessingPlan } from '@/lib/intelligentEngine';
+import HatchABEngineSelector from './HatchABEngineSelector';
 
 const FABRIC_TYPES = ['Algodón', 'Poliéster', 'Mezcla', 'Denim', 'Lino', 'Seda', 'Lycra', 'Otro'];
 
@@ -65,7 +66,7 @@ function Toggle({ label, value, onChange }) {
 
 
 
-export default function ConfigPanel({ config, onChange, regions, selectedRegionIds, onRegionsUpdate }) {
+export default function ConfigPanel({ config, onChange, regions, selectedRegionIds, onRegionsUpdate, hatchABEnabled = false, onHatchABChange = () => {}, showHatchABSelector = false }) {
   const cfg = config || {};
   const set = (key, val) => onChange({ ...cfg, [key]: val });
   const setUnifiedStandardProProfile = (enabled) => {
@@ -126,6 +127,8 @@ export default function ConfigPanel({ config, onChange, regions, selectedRegionI
 
   return (
     <div className="flex flex-col h-full overflow-y-auto bg-[#0d0f14]">
+
+      {showHatchABSelector && <div className="p-3"><HatchABEngineSelector enabled={hatchABEnabled} onChange={onHatchABChange} /></div>}
 
       {/* GENERAL */}
       <Section title="Configuración General" icon={Settings}>

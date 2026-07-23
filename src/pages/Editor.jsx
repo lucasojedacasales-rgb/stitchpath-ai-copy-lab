@@ -25,6 +25,9 @@ import { LIGHTWEIGHT_APP_BOOT_V1, logPerf, logSafeBootStatus, perfNow } from '@/
 import { recordVectorizationRun, referenceLearningEnabled } from '@/lib/emergencyStabilization';
 import { exportDiagnosticDataBundle } from '@/lib/diagnosticDataBundle';
 import { cleanCartoonSegmentationRegions } from '@/lib/cartoonSegmentationCleanup';
+import { runHatchGuidedEngineAB, setFabricRevealChoice } from '@/lib/hatchGuidedEngineAB/engine';
+import { applyHatchABExclusions } from '@/lib/hatchGuidedEngineAB/exclusions';
+import { DEFAULT_EXPERIMENTAL_HATCH_GUIDED_ENGINE_AB } from '@/lib/hatchGuidedEngineAB/featureFlags';
 
 
 // ═══ Decision Engine — SIEMPRE ACTIVADO ═══
@@ -58,8 +61,9 @@ const LearnedPresetValidationPanel = lazy(() => import('@/components/referenceLe
 const IntegratedPipelineReportButton = lazy(() => import('@/components/referenceLearning/IntegratedPipelineReportButton'));
 const CommandRuntimeForensicsPanel = lazy(() => import('@/components/editor/CommandRuntimeForensicsPanel'));
 const DecisionPanel = lazy(() => import('@/components/DecisionPanel.jsx').then(module => ({ default: module.DecisionPanel })));
+const HatchABComparator = lazy(() => import('@/components/editor/HatchABComparator.jsx'));
 
-const TECHNICAL_TABS = new Set(['mask', 'planner', 'travel', 'simulate', 'finallook', 'validate', 'details', 'diagnostic', 'prof', 'learn']);
+const TECHNICAL_TABS = new Set(['mask', 'planner', 'travel', 'simulate', 'finallook', 'validate', 'details', 'diagnostic', 'prof', 'learn', 'hatchAB']);
 const AI_ENABLED = true; // Cambiar a false para desactivar
 // ═══════════════════════════════════════════
 
@@ -157,6 +161,10 @@ export default function Editor() {
   const [processingElapsed, setProcessingElapsed] = useState(0);
   const [regions, setRegions] = useState([]);
   const [config, setConfig] = useState(DEFAULT_CONFIG);
+  const [experimentalHatchGuidedEngineAB, setExperimentalHatchGuidedEngineAB] = useState(DEFAULT_EXPERIMENTAL_HATCH_GUIDED_ENGINE_AB);
+  const [baselineRegions, setBaselineRegions] = useState(null);
+  const [baselineCommandSnapshot, setBaselineCommandSnapshot] = useState(null);
+  const [experimentalHatchABResult, setExperimentalHatchABResult] = useState(null);
   const [step, setStep] = useState(1);
   const [imageUrl, setImageUrl] = useState(null);
   const [originalImageUrl, setOriginalImageUrl] = useState(null);
@@ -193,6 +201,8 @@ export default function Editor() {
   const unifiedMetricsCacheRef = useRef({ key: null, value: null });
   const lastCommandHashRef = useRef('empty');
   const tabSwitchStartRef = useRef(null);
+  const baselineRegionsRef = useRef(null);
+  const experimentalHatchABRef = useRef(DEFAULT_EXPERIMENTAL_HATCH_GUIDED_ENGINE_AB);
 
   useEffect(() => {
     const firstPaintStart = perfNow();
@@ -300,14 +310,14 @@ export default function Editor() {
   }), [config.width_mm, config.height_mm]);
 
   const activeToolReady = !TECHNICAL_TABS.has(activeTab) || preparedTool === activeTab;
-  const activeTabNeedsCommands = activeToolReady && (activeTab === 'simulate' || activeTab === 'finallook' || activeTab === 'validate' || activeTab === 'diagnostic' || activeTab === 'prof' || activeTab === 'learn');
+  const activeTabNeedsCommands = activeToolReady && (activeTab === 'simulate' || activeTab === 'finallook' || activeTab === 'validate' || activeTab === 'diagnostic' || activeTab === 'prof' || activeTab === 'learn' || activeTab === 'hatchAB');
   const needsFinalCommandBuild = !LIGHTWEIGHT_APP_BOOT_V1 || !!optimizedCommandsOverride || processing || (showExport && exportReady) || activeTabNeedsCommands || !!finalCommandCacheRef.current.value;
   const regionsVersion = useMemo(() => regionsCommandHash(regions), [regions]);
   const optimizedOverrideVersion = useMemo(() => commandSequenceHash(optimizedCommandsOverride || []), [optimizedCommandsOverride]);
 
   // Single source of truth — cached by real motor inputs, not by UI tabs/panels.
   const finalEmbroideryCommands = useMemo(() => {
-    const cacheKey = stableHash({ regionsVersion, motorConfigHash, darkStrokeVersion, professionalMode: !!motorConfig.professionalMode, optimizedOverrideVersion });
+    const cacheKey = stableHash({ regionsVersion, motorConfigHash, darkStrokeVersion, professionalMode: !!motorConfig.professionalMode, optimizedOverrideVersion, experimentalHatchGuidedEngineAB });
     if (finalCommandCacheRef.current.key === cacheKey && finalCommandCacheRef.current.value) {
       return finalCommandCacheRef.current.value;
     }
@@ -334,14 +344,16 @@ export default function Editor() {
       };
       result = { commands: guarded.commands, objects: [], meta, transitionGuardReport: guarded.report, transitionGuardMd: guarded.md };
     } else {
-      let genRegions = regions;
+      let genRegions = experimentalHatchGuidedEngineAB
+        ? regions.filter(r => r.stitch_type !== 'fabric_reveal' && r.skipExport !== true)
+        : regions;
       if (configWithDarkStroke.professionalMode) {
         const ld = configWithDarkStroke.learnedFillDensityMm;
         const la = configWithDarkStroke.learnedFillAngleDeg;
         const variation = configWithDarkStroke.learnedNeighborAngleVariationDeg;
         if (ld != null || la != null) {
           let fillIdx = 0;
-          genRegions = regions.map(r => {
+          genRegions = genRegions.map(r => {
             const isFill = r.stitch_type === 'fill' || !r.stitch_type;
             let angle = la != null ? la : (r.angle ?? 45);
             if (isFill && variation != null && la != null) {
@@ -381,12 +393,16 @@ export default function Editor() {
         };
       }
     }
+    if (experimentalHatchGuidedEngineAB) {
+      const excluded = applyHatchABExclusions(result.commands, regions, configWithDarkStroke);
+      result = { ...result, commands: excluded.commands, hatchABExclusionReport: excluded.report, meta: { ...(result.meta || {}), source: 'hatch_guided_engine_ab + current_pipeline' } };
+    }
     const commandHash = commandSequenceHash(result.commands);
     result = { ...result, meta: { ...(result.meta || {}), commandVersion: commandHash } };
     finalCommandCacheRef.current = { key: cacheKey, value: result };
     perfLog('finalCommandBuild', commandAnalysisStart);
     return result;
-  }, [regionsVersion, motorConfigHash, darkStrokeVersion, optimizedOverrideVersion, needsFinalCommandBuild, motorConfig.professionalMode, regions, configWithDarkStroke, editorMachineSettings, optimizedCommandsOverride, darkStroke]);
+  }, [regionsVersion, motorConfigHash, darkStrokeVersion, optimizedOverrideVersion, needsFinalCommandBuild, motorConfig.professionalMode, regions, configWithDarkStroke, editorMachineSettings, optimizedCommandsOverride, darkStroke, experimentalHatchGuidedEngineAB]);
 
   const commandVersionReal = finalEmbroideryCommands.meta?.commandVersion || commandSequenceHash(finalEmbroideryCommands.commands || []);
 
@@ -446,6 +462,9 @@ export default function Editor() {
       const loadedConfig = { ...DEFAULT_CONFIG, ...(p.config || {}) };
       setConfig(loadedConfig);
       setRegions(p.regions || []);
+      setBaselineRegions(p.regions || []);
+      setExperimentalHatchABResult(null);
+      setExperimentalHatchGuidedEngineAB(false);
       setImageUrl(p.image_url || null);
       const restoredOriginal = loadedConfig.originalUploadUrl || p.thumbnail_url || (/_masked/i.test(p.image_url || '') ? null : p.image_url) || null;
       setOriginalImageUrl(restoredOriginal);
@@ -463,6 +482,8 @@ export default function Editor() {
   const stepRef     = useRef(step);
   const imageUrlRef = useRef(imageUrl);
   useEffect(() => { regionsRef.current  = regions;  }, [regions]);
+  useEffect(() => { baselineRegionsRef.current = baselineRegions; }, [baselineRegions]);
+  useEffect(() => { experimentalHatchABRef.current = experimentalHatchGuidedEngineAB; }, [experimentalHatchGuidedEngineAB]);
   useEffect(() => { configRef.current   = config;   }, [config]);
   useEffect(() => { stepRef.current     = step;     }, [step]);
   useEffect(() => { imageUrlRef.current = imageUrl; }, [imageUrl]);
@@ -471,7 +492,9 @@ export default function Editor() {
     if (!project) return;
     setSaving(true);
     try {
-      const currentRegions = regionsRef.current;
+      const currentRegions = experimentalHatchABRef.current && baselineRegionsRef.current
+        ? baselineRegionsRef.current
+        : regionsRef.current;
       const payload = {
         config:        configRef.current,
         regions:       currentRegions,
@@ -492,6 +515,9 @@ export default function Editor() {
     setUploadingImage(true);
     // Full state reset — no stale data from previous design must survive.
     setRegions([]);
+    setBaselineRegions([]);
+    setExperimentalHatchABResult(null);
+    setExperimentalHatchGuidedEngineAB(false);
     setSelectedRegionId(null);
     setPathMetrics(null);
     setProcessingError(null);
@@ -558,7 +584,18 @@ export default function Editor() {
 
       if (ctx.enhanced?.enhancedUrl) setPreprocessedUrl(ctx.enhanced.enhancedUrl);
 
-      setRegions(enrichedRegions);
+      setBaselineRegions(enrichedRegions);
+      if (experimentalHatchGuidedEngineAB) {
+        const baselineBuilt = buildFinalCommands(enrichedRegions, { ...processingConfig, darkStroke }, editorMachineSettings);
+        const experimental = runHatchGuidedEngineAB(enrichedRegions, processingConfig, { enabled: true });
+        setBaselineCommandSnapshot(baselineBuilt);
+        setExperimentalHatchABResult(experimental);
+        setRegions(experimental.regions);
+      } else {
+        setBaselineCommandSnapshot(null);
+        setExperimentalHatchABResult(null);
+        setRegions(enrichedRegions);
+      }
       setPathMetrics(ctx.pathMetrics || null);
       setDetailReport(ctx.detailReport || null);
       setClassReport(ctx.classReport || null);
@@ -683,6 +720,7 @@ export default function Editor() {
     { id: 'diagnostic', label: 'Diagnóstico' },
     { id: 'prof',       label: 'Profesional' },
     { id: 'learn',      label: 'Aprendizaje' },
+    { id: 'hatchAB',    label: 'Hatch A+B' },
   ];
   const visibleTabs = isLabMode ? labPrimaryTabs : simpleTabs;
   const activeInMore = labMoreTabs.some((tab) => tab.id === activeTab);
@@ -735,6 +773,39 @@ export default function Editor() {
   useEffect(() => {
     if (isCleanMode && (activeTab === 'finallook' || activeTab === 'simulate')) setCleanConfigOpen(false);
   }, [isCleanMode, activeTab]);
+
+  const handleHatchABEngineChange = useCallback((enabled) => {
+    if (enabled === experimentalHatchABRef.current) return;
+    if (enabled) {
+      const source = baselineRegionsRef.current?.length ? baselineRegionsRef.current : regionsRef.current;
+      const result = runHatchGuidedEngineAB(source, configRef.current, { enabled: true });
+      const stableSnapshot = finalEmbroideryCommands.deferred
+        ? buildFinalCommands(source, configWithDarkStroke, editorMachineSettings)
+        : finalEmbroideryCommands;
+      setBaselineRegions(source);
+      setBaselineCommandSnapshot(stableSnapshot);
+      setExperimentalHatchABResult(result);
+      experimentalHatchABRef.current = true;
+      setExperimentalHatchGuidedEngineAB(true);
+      setRegions(result.regions);
+      setEditorUiMode('lab');
+      setActiveTab('hatchAB');
+    } else {
+      experimentalHatchABRef.current = false;
+      setExperimentalHatchGuidedEngineAB(false);
+      if (baselineRegionsRef.current) setRegions(baselineRegionsRef.current);
+      setActiveTab('editor');
+    }
+  }, [finalEmbroideryCommands, configWithDarkStroke, editorMachineSettings]);
+
+  const handleHatchABFabricChoice = useCallback((regionId, choice) => {
+    setExperimentalHatchABResult(previous => {
+      if (!previous) return previous;
+      const next = setFabricRevealChoice(previous, regionId, choice);
+      setRegions(next.regions);
+      return next;
+    });
+  }, []);
 
   const handleRegenerateCommands = useCallback(() => {
     console.log('[command-sync] regenerate: clearing override, rebuilding from regions');
@@ -832,6 +903,7 @@ export default function Editor() {
             <NavButton onClick={() => saveProject()} icon={Save} label={saving ? '...' : 'Guardar'} />
           </div>
         </div>
+        {experimentalHatchGuidedEngineAB && <div className="border-t border-amber-500/30 bg-amber-900/20 px-4 py-1.5 text-center text-[11px] font-bold text-amber-300">Motor experimental. No validado para producción.</div>}
         {!focusMode && (
           <div className="flex items-center justify-between px-4 py-1.5 border-t border-[#1a1d27]">
             <div className="flex items-center gap-1 relative">
@@ -881,7 +953,7 @@ export default function Editor() {
         )}
         {!focusMode && isLabMode && (
           <div className="w-64 flex-shrink-0 border-r border-[#1e2130] overflow-y-auto space-y-4 p-4">
-            <ConfigPanel config={config} onChange={setConfig} regions={regions} selectedRegionIds={selectedRegionId ? [selectedRegionId] : []} onRegionsUpdate={handleRegionsUpdate} />
+            <ConfigPanel config={config} onChange={setConfig} regions={regions} selectedRegionIds={selectedRegionId ? [selectedRegionId] : []} onRegionsUpdate={handleRegionsUpdate} hatchABEnabled={experimentalHatchGuidedEngineAB} onHatchABChange={handleHatchABEngineChange} showHatchABSelector />
             <div className="space-y-4 border-t border-[#1e2130] pt-4">
               <div className="text-[10px] font-bold uppercase tracking-wide text-slate-500">Avanzado · Laboratorio</div>
               <button
@@ -921,6 +993,17 @@ export default function Editor() {
 
           {!activeToolReady ? (
             <TechnicalToolLoading label={`Preparando ${activeTab}…`} />
+          ) : activeTab === 'hatchAB' ? (
+            <div className="flex-1 overflow-y-auto">
+              <HatchABComparator
+                baselineRegions={baselineRegions || []}
+                experimentalResult={experimentalHatchABResult}
+                baselineCommands={baselineCommandSnapshot?.commands || []}
+                experimentalCommands={finalEmbroideryCommands.commands || []}
+                exclusionReport={finalEmbroideryCommands.hatchABExclusionReport}
+                onFabricChoice={handleHatchABFabricChoice}
+              />
+            </div>
           ) : activeTab === 'planner' ? (
             <div className="flex-1 overflow-hidden">
               <StitchPlannerPanel
