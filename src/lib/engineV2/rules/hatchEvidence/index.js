@@ -28,6 +28,22 @@ export {
   measureHoleMinimumSpanMm,
 } from './holes.js';
 export { HATCH_OVERLAP_EVIDENCE_RULES, HATCH_OVERLAP_REVIEW_AUDIT } from './overlaps.js';
+export {
+  CONTOUR_LAST_ASSOCIATION_LIMIT,
+  CONTOUR_LAST_ASSOCIATION_METHOD,
+  CONTOUR_LAST_RULE_ID,
+  evaluateContourLastProposalGuard,
+} from './contourLast.js';
+export {
+  DEFAULT_HATCH_OVERLAP_PROFILE,
+  DEFAULT_HATCH_OVERLAP_RULE_FLAGS,
+  HATCH_OVERLAP_CONFIG_FIELDS,
+  HATCH_OVERLAP_PROFILES,
+  HATCH_OVERLAP_RULE_IDS,
+  hatchOverlapRuleEnabled,
+  resolveHatchOverlapIntegrationConfig,
+  validateHatchOverlapIntegrationConfig,
+} from './overlapProfiles.js';
 export { HATCH_TECHNIQUE_EVIDENCE_RULES } from './techniques.js';
 export { HATCH_FABRIC_EVIDENCE_RULES } from './fabrics.js';
 export { HATCH_SCALING_EVIDENCE_RULES } from './scaling.js';

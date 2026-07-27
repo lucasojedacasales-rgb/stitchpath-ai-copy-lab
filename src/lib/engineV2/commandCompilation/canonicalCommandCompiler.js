@@ -1,4 +1,9 @@
 import { validateEmbroideryObjectV2, validateThreadDefinitionV2 } from '../modelValidation.js';
+import {
+  createFlatErrorReference,
+  mergeFlatErrors,
+  propagateFlatErrors,
+} from '../errorPropagation.js';
 import { validateGlobalSequencePlan } from '../sequencing/sequencePlanningValidation.js';
 import { validateMachineIndependentPhysicalStitchPlan } from '../stitchGeneration/physicalStitchValidation.js';
 import { validateTechnicalEmbroideryPlan } from '../technical/technicalPlanningValidation.js';
@@ -11,10 +16,11 @@ const snapshot = value => { try { return JSON.stringify(value); } catch { return
 const duplicateCount = values => values.length - new Set(values).size;
 
 function blockedCompilation({ sequencePlan, physicalPlan, config, errors, metadata }) {
+  const causalErrors = mergeFlatErrors(errors);
   const pathMap = new Map((physicalPlan?.objectPaths || []).map(item => [item.objectId, item]));
-  const dispositions = (sequencePlan?.executionSteps || []).map(step => createCanonicalCompilationDispositionV2({ objectId: step.objectId, executionStepId: step.id, physicalPathId: pathMap.get(step.objectId)?.id ?? null, status: 'blocked', reasonCode: pathMap.has(step.objectId) ? 'PARTIAL_CANONICAL_STREAM_REJECTED' : 'PHYSICAL_PATH_MISSING', reason: 'Canonical compilation was rejected transactionally.', evidence: errors, source: { compiler: 'engineV2-phase10' } }));
+  const dispositions = (sequencePlan?.executionSteps || []).map(step => createCanonicalCompilationDispositionV2({ objectId: step.objectId, executionStepId: step.id, physicalPathId: pathMap.get(step.objectId)?.id ?? null, status: 'blocked', reasonCode: pathMap.has(step.objectId) ? 'PARTIAL_CANONICAL_STREAM_REJECTED' : 'PHYSICAL_PATH_MISSING', reason: 'Canonical compilation was rejected transactionally.', evidence: [createFlatErrorReference(causalErrors, 'canonical_compilation')], source: { compiler: 'engineV2-phase10' } }));
   const sourceCount = sequencePlan?.executionSteps?.length ?? 0;
-  return createCanonicalCommandCompilationV2({ version: '2-canonical-command-compilation', initialThreadId: sequencePlan?.threadBlocks?.[0]?.threadId ?? null, dispositions, commands: [], objectCommandSpans: [], discontinuityClassifications: [], executionOrder: (sequencePlan?.executionSteps || []).map(item => item.objectId), threadBlockOrder: (sequencePlan?.threadBlocks || []).map(item => item.id), valid: false, errors, warnings: [], summary: { sourceScheduledObjectCount: sourceCount, canonicalDispositionCount: dispositions.length, canonicalDispositionCoveragePercent: sourceCount ? 100 : 100, silentScheduledObjectDropCount: 0, duplicateCanonicalDispositionCount: 0, compiledObjectCount: 0, manualRequiredCount: 0, blockedCount: dispositions.length, commandCount: 0 }, config, metadata: { ...metadata, partialCanonicalStreamRejected: true, canonicalCommandsGenerated: false } });
+  return createCanonicalCommandCompilationV2({ version: '2-canonical-command-compilation', initialThreadId: sequencePlan?.threadBlocks?.[0]?.threadId ?? null, dispositions, commands: [], objectCommandSpans: [], discontinuityClassifications: [], executionOrder: (sequencePlan?.executionSteps || []).map(item => item.objectId), threadBlockOrder: (sequencePlan?.threadBlocks || []).map(item => item.id), valid: false, errors: causalErrors, warnings: [], summary: { sourceScheduledObjectCount: sourceCount, canonicalDispositionCount: dispositions.length, canonicalDispositionCoveragePercent: sourceCount ? 100 : 100, silentScheduledObjectDropCount: 0, duplicateCanonicalDispositionCount: 0, compiledObjectCount: 0, manualRequiredCount: 0, blockedCount: dispositions.length, commandCount: 0 }, config, metadata: { ...metadata, partialCanonicalStreamRejected: true, canonicalCommandsGenerated: false } });
 }
 
 function buildSummary({ sequencePlan, physicalPlan, result, metadata }) {
@@ -61,14 +67,46 @@ export function compileCanonicalCommandStream({ regions = [], threadedObjectMate
   const before = { objects: snapshot(threadedObjectMaterialization), technical: snapshot(technicalPlan), sequence: snapshot(sequencePlan), physical: snapshot(physicalPlan) };
   const config = resolveCanonicalCompilationConfig(rawConfig); const errors = [...validateCanonicalCompilationConfig(config).errors];
   const objects = threadedObjectMaterialization?.objects || []; const threads = threadedObjectMaterialization?.threads || [];
-  objects.forEach((object, index) => errors.push(...validateEmbroideryObjectV2(object).errors.map(item => ({ ...item, path: `objects[${index}].${item.path}` }))));
-  threads.forEach((thread, index) => errors.push(...validateThreadDefinitionV2(thread).errors.map(item => ({ ...item, path: `threads[${index}].${item.path}` }))));
-  errors.push(...validateTechnicalEmbroideryPlan(technicalPlan, threadedObjectMaterialization, regions).errors);
-  errors.push(...validateGlobalSequencePlan(sequencePlan, threadedObjectMaterialization, technicalPlan).errors);
-  errors.push(...validateMachineIndependentPhysicalStitchPlan(physicalPlan, threadedObjectMaterialization, technicalPlan, sequencePlan).errors);
+  const objectMaterializationErrors = Array.isArray(threadedObjectMaterialization?.errors) ? threadedObjectMaterialization.errors : [];
+  const technicalErrors = Array.isArray(technicalPlan?.errors) ? technicalPlan.errors : [];
+  const sequenceErrors = Array.isArray(sequencePlan?.errors) ? sequencePlan.errors : [];
+  const physicalErrors = Array.isArray(physicalPlan?.errors) ? physicalPlan.errors : [];
+  const upstreamErrors = [
+    ...objectMaterializationErrors,
+    ...technicalErrors,
+    ...sequenceErrors,
+    ...physicalErrors,
+  ];
+  const allUpstreamValid = threadedObjectMaterialization?.valid === true
+    && technicalPlan?.valid === true
+    && sequencePlan?.valid === true
+    && physicalPlan?.valid === true;
+  if (allUpstreamValid) {
+    objects.forEach((object, index) => upstreamErrors.push(...validateEmbroideryObjectV2(object).errors.map(item => ({ ...item, path: `objects[${index}].${item.path}` }))));
+    threads.forEach((thread, index) => upstreamErrors.push(...validateThreadDefinitionV2(thread).errors.map(item => ({ ...item, path: `threads[${index}].${item.path}` }))));
+    upstreamErrors.push(...validateTechnicalEmbroideryPlan(technicalPlan, threadedObjectMaterialization, regions).errors);
+    upstreamErrors.push(...validateGlobalSequencePlan(sequencePlan, threadedObjectMaterialization, technicalPlan).errors);
+    upstreamErrors.push(...validateMachineIndependentPhysicalStitchPlan(physicalPlan, threadedObjectMaterialization, technicalPlan, sequencePlan).errors);
+  }
+  const deduplicatedUpstreamErrors = mergeFlatErrors(upstreamErrors);
   const missingPaths = (sequencePlan?.executionSteps || []).filter(step => !(physicalPlan?.objectPaths || []).some(path => path.objectId === step.objectId));
   if (missingPaths.length) errors.push(...missingPaths.map(step => ({ code: 'PHYSICAL_PATH_MISSING', objectId: step.objectId })));
   const mutationMetadata = { objectMutationCount: 0, technicalSpecificationMutationCount: 0, sequencePlanMutationCount: 0, physicalPlanMutationCount: 0, threadBlockMutationCount: 0, selectedCandidateIdentityMutationCount: 0 };
+  if (deduplicatedUpstreamErrors.length) {
+    const propagated = propagateFlatErrors({
+      upstreamErrors: deduplicatedUpstreamErrors,
+      localErrors: errors,
+      stage: 'canonical_compilation',
+      wrapper: physicalPlan?.valid !== true
+        ? { code: 'INVALID_PHYSICAL_PLAN_UPSTREAM', path: 'physicalPlan', message: 'Canonical compilation requires a valid physical plan.' }
+        : sequencePlan?.valid !== true
+          ? { code: 'INVALID_SEQUENCE_PLAN_UPSTREAM', path: 'sequencePlan', message: 'Canonical compilation requires a valid sequence plan.' }
+          : technicalPlan?.valid !== true
+            ? { code: 'INVALID_TECHNICAL_PLAN_UPSTREAM', path: 'technicalPlan', message: 'Canonical compilation requires a valid technical plan.' }
+            : { code: 'INVALID_THREADED_OBJECT_MATERIALIZATION_UPSTREAM', path: 'threadedObjectMaterialization', message: 'Canonical compilation requires a valid threaded object materialization.' },
+    });
+    return blockedCompilation({ sequencePlan, physicalPlan, config, errors: propagated, metadata: { ...mutationMetadata, upstreamRejectedBeforeCanonicalCompilation: true } });
+  }
   if (errors.length && !config.allowPartialCanonicalStream) return blockedCompilation({ sequencePlan, physicalPlan, config, errors, metadata: mutationMetadata });
   const compiled = compileThreadBlocksToCanonicalCommands({ objects, threads, technicalPlan, sequencePlan, physicalPlan, config }); errors.push(...compiled.errors);
   const after = { objects: snapshot(threadedObjectMaterialization), technical: snapshot(technicalPlan), sequence: snapshot(sequencePlan), physical: snapshot(physicalPlan) };

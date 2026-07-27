@@ -1,4 +1,5 @@
 import { createEmbroideryObjectV2, createThreadDefinitionV2 } from '../model.js';
+import { propagateFlatErrors } from '../errorPropagation.js';
 import { createDraftThreadAssignmentV2 } from './threadAssignmentModel.js';
 import { resolveDraftThreadAssignments } from './threadPaletteResolver.js';
 import { validateThreadedObjectMaterialization } from './threadResolutionValidation.js';
@@ -135,9 +136,71 @@ function summaryFor(drafts, assignments, threads, objects, layers, resolutionSum
   };
 }
 
+function blockedThreadedMaterialization(drafts, threadResolutionConfig, upstreamErrors) {
+  return {
+    version: '2-threaded-object-materialization',
+    assignments: [],
+    threads: [],
+    objects: [],
+    byAssignmentId: {},
+    byDraftId: {},
+    byThreadId: {},
+    byObjectId: {},
+    byRegionId: {},
+    executionLayers: [],
+    valid: false,
+    errors: propagateFlatErrors({
+      upstreamErrors,
+      stage: 'final_object_materialization',
+      wrapper: {
+        code: 'INVALID_OBJECT_DRAFT_MATERIALIZATION_UPSTREAM',
+        path: 'objectDraftMaterialization',
+        message: 'Thread materialization requires an explicitly valid draft materialization.',
+      },
+    }),
+    warnings: [],
+    summary: {
+      sourceDraftCount: drafts.length,
+      assignmentCount: 0,
+      assignedCount: 0,
+      blockedCount: drafts.length,
+      finalObjectCount: 0,
+      threadDefinitionCount: 0,
+      draftThreadAssignmentCoveragePercent: drafts.length ? 0 : 100,
+      silentDraftDropCount: drafts.length,
+      pendingThreadAssignmentCount: 0,
+      missingThreadIdCount: 0,
+      dependencyCount: 0,
+      dependencyCycleCount: 0,
+    },
+    config: threadResolutionConfig,
+    metadata: {
+      inputMutationsDetected: false,
+      upstreamRejectedBeforeMaterialization: true,
+      threadAssignmentsResolved: false,
+      threadDefinitionsCreated: false,
+      finalEmbroideryObjectsMaterialized: false,
+      threadBlocksCreated: 0,
+      stitchCoordinatesGenerated: false,
+      canonicalCommandsGenerated: false,
+      globalSequencingApplied: false,
+      travelOptimizationApplied: false,
+      machineAdaptationApplied: false,
+      encodingApplied: false,
+    },
+  };
+}
+
 export function materializeThreadedEmbroideryObjects({ regions = [], objectDraftMaterialization, threadResolutionConfig = {} }) {
   const before = snapshot({ regions, objectDraftMaterialization, threadResolutionConfig });
   const drafts = [...(objectDraftMaterialization?.drafts || [])];
+  if (objectDraftMaterialization?.valid !== true) {
+    return blockedThreadedMaterialization(
+      drafts,
+      threadResolutionConfig,
+      objectDraftMaterialization?.errors || [],
+    );
+  }
   const resolution = resolveDraftThreadAssignments({ drafts, config: threadResolutionConfig });
   const translation = translateDraftDependenciesToFinalObjects({ drafts, assignments: resolution.assignments, config: resolution.config });
   const assignmentMap = new Map(translation.assignments.map(item => [item.draftId, item]));

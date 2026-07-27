@@ -1,11 +1,17 @@
 import { EMBROIDERY_PROPOSAL_ROLES, EMBROIDERY_PROPOSAL_STITCH_TYPES } from '../planning/embroideryPlanningModel.js';
+import { validateProposalDependencyIntegrity } from '../planning/dependencyPlanner.js';
+import { hatchOverlapRuleEnabled } from '../rules/hatchEvidence/overlapProfiles.js';
 import { validateEmbroideryObjectProposalV2 } from '../planning/objectPlanningValidation.js';
+import {
+  mergeFlatErrors,
+  propagateFlatErrors,
+} from '../errorPropagation.js';
 import { createProposalReviewDecisionV2 } from './reviewDecisionModel.js';
 import { resolveProposalReviewPolicyConfig, validateProposalReviewPolicyConfig } from './reviewPolicyConfig.js';
 
 const DRAFT_ROLES = new Set(['base_fill', 'foreground_fill', 'internal_detail', 'dark_detail', 'outer_outline', 'inner_outline', 'highlight']);
 const DRAFT_STITCH_TYPES = new Set(['tatami', 'satin', 'running', 'manual']);
-const issue = (code, path, message) => ({ code, path, message });
+const issue = (code, path, message, details = {}) => ({ code, path, message, ...details });
 const same = (left, right) => JSON.stringify(left) === JSON.stringify(right);
 
 function baseDecision(proposal, input) {
@@ -86,12 +92,56 @@ function explicitDecision(proposal, explicit, config, errors) {
   return baseDecision(proposal, { ...explicit, action: 'override', automatic: false, reasonCode: explicit.reasonCode || 'VALID_EXPLICIT_OVERRIDE' });
 }
 
-export function resolveProposalReviewDecisions({ plan, explicitReviewDecisions = [], config = {} }) {
+export function resolveProposalReviewDecisions({
+  plan,
+  regions,
+  graph,
+  semanticResult,
+  explicitReviewDecisions = [],
+  config = {},
+}) {
   const policyValidation = validateProposalReviewPolicyConfig(config);
   const resolvedConfig = resolveProposalReviewPolicyConfig(config);
   const proposals = [...(plan?.proposals || [])].sort((a, b) => a.id.localeCompare(b.id));
   const proposalIds = new Set(proposals.map(item => item.id));
-  const errors = [...policyValidation.errors];
+  const contourEnabled = hatchOverlapRuleEnabled(plan?.config, 'CONTOUR-LAST-001');
+  const contourHistory = contourEnabled
+    || Boolean(plan?.hatchOverlapDependencyContract)
+    || Boolean(plan?.hatchOverlapIntegrationMarker)
+    || Boolean(plan?.hatchOverlapTrace)
+    || plan?.metadata?.hatchOverlapEvaluatorInvoked === true
+    || proposals.some(proposal => Object.hasOwn(proposal?.source || {}, 'hatchOverlap'));
+  const planIntegrity = validateProposalDependencyIntegrity({
+    proposals,
+    regions,
+    graph,
+    semanticResult,
+    config: plan?.config,
+    executionLayers: plan?.executionLayers,
+    contourDependencyContract: plan?.hatchOverlapDependencyContract,
+    hatchOverlapTrace: plan?.hatchOverlapTrace,
+    contourIntegrationMarker: plan?.hatchOverlapIntegrationMarker,
+    metadata: plan?.metadata,
+    requireContourContract: contourHistory,
+    requireContourTrace: contourHistory,
+    requireContourMarker: contourHistory,
+  });
+  const upstreamValid = plan?.valid === true && planIntegrity.valid;
+  const causalErrors = mergeFlatErrors([
+    ...(Array.isArray(plan?.errors) ? plan.errors : []),
+    ...planIntegrity.errors,
+  ]);
+  let errors = mergeFlatErrors(causalErrors, policyValidation.errors);
+  if (!upstreamValid) errors = propagateFlatErrors({
+    upstreamErrors: causalErrors,
+    localErrors: policyValidation.errors,
+    stage: 'proposal_review',
+    wrapper: issue(
+      'INVALID_PROPOSAL_PLAN_UPSTREAM',
+      'plan.valid',
+      'Proposal review requires an explicitly valid upstream proposal plan.',
+    ),
+  });
   const warnings = [];
   const explicitGroups = new Map();
   (Array.isArray(explicitReviewDecisions) ? explicitReviewDecisions : []).forEach((item, index) => {
@@ -107,11 +157,13 @@ export function resolveProposalReviewDecisions({ plan, explicitReviewDecisions =
       errors.push(issue('DUPLICATE_EXPLICIT_REVIEW_DECISION', 'explicitReviewDecisions', `Proposal "${proposalId}" has duplicate explicit decisions.`));
     }
   });
-  const decisions = proposals.map(proposal => {
-    const explicit = explicitGroups.get(proposal.id) || [];
-    if (explicit.length > 1) return baseDecision(proposal, { action: 'blocked', reasonCode: 'DUPLICATE_EXPLICIT_REVIEW', reason: 'Duplicate explicit decisions prevent safe resolution.', automatic: false });
-    return explicit.length === 1 ? explicitDecision(proposal, explicit[0], resolvedConfig, errors) : automaticDecision(proposal, plan, resolvedConfig);
-  });
+  const decisions = upstreamValid
+    ? proposals.map(proposal => {
+      const explicit = explicitGroups.get(proposal.id) || [];
+      if (explicit.length > 1) return baseDecision(proposal, { action: 'blocked', reasonCode: 'DUPLICATE_EXPLICIT_REVIEW', reason: 'Duplicate explicit decisions prevent safe resolution.', automatic: false });
+      return explicit.length === 1 ? explicitDecision(proposal, explicit[0], resolvedConfig, errors) : automaticDecision(proposal, plan, resolvedConfig);
+    })
+    : [];
   const decided = new Set(decisions.map(item => item.proposalId));
   const silentProposalDropCount = proposals.filter(item => !decided.has(item.id)).length;
   const summary = {
@@ -127,5 +179,16 @@ export function resolveProposalReviewDecisions({ plan, explicitReviewDecisions =
     overriddenDecisionCount: decisions.filter(item => item.action === 'override').length,
     blockedDecisionCount: decisions.filter(item => item.action === 'blocked').length,
   };
-  return { decisions, byProposalId: Object.fromEntries(decisions.map(item => [item.proposalId, item])), valid: errors.length === 0 && summary.proposalDispositionCoveragePercent === 100 && duplicateDecisionCount === 0, errors, warnings, summary, config: resolvedConfig };
+  const deduplicatedErrors = mergeFlatErrors(errors);
+  return {
+    decisions,
+    byProposalId: Object.fromEntries(decisions.map(item => [item.proposalId, item])),
+    valid: deduplicatedErrors.length === 0
+      && summary.proposalDispositionCoveragePercent === 100
+      && duplicateDecisionCount === 0,
+    errors: deduplicatedErrors,
+    warnings,
+    summary,
+    config: resolvedConfig,
+  };
 }

@@ -1,5 +1,9 @@
 import { validateEmbroideryObjectV2, validateThreadDefinitionV2 } from '../modelValidation.js';
-import { validateObjectTechnicalSpecificationV2 } from '../technical/technicalPlanningValidation.js';
+import { mergeFlatErrors, propagateFlatErrors } from '../errorPropagation.js';
+import {
+  validateObjectTechnicalSpecificationV2,
+  validateTechnicalEmbroideryPlan,
+} from '../technical/technicalPlanningValidation.js';
 import { enumerateValidEntryExitPairs, sequencePointDistance } from './candidatePairSelector.js';
 import { scheduleDependencyAwareObjects } from './dependencyAwareScheduler.js';
 import { createSequenceCost } from './sequenceCostModel.js';
@@ -16,7 +20,7 @@ import { resolveSequencePlanningConfig, validateSequencePlanningConfig } from '.
 import { validateGlobalSequencePlan } from './sequencePlanningValidation.js';
 import { buildThreadBlocksFromExecution } from './threadBlockBuilder.js';
 
-const issue = (code, path, message) => ({ code, path, message });
+const issue = (code, path, message, details = {}) => ({ code, path, message, ...details });
 const snapshot = value => { try { return JSON.stringify(value); } catch { return null; } };
 
 function fingerprint(value) {
@@ -175,6 +179,43 @@ function summaryFor({ objects, dispositions, selections, steps, blocks, transiti
   };
 }
 
+function blockedSequencePlan({ objects, config, errors, inputMutationsDetected }) {
+  const summary = summaryFor({
+    objects,
+    dispositions: [],
+    selections: [],
+    steps: [],
+    blocks: [],
+    transitions: [],
+    searchMetadata: null,
+    baseline: { estimatedTravelMm: 0, threadChangeCount: 0, threadRevisitCount: 0 },
+    inputMutationsDetected,
+  });
+  return createGlobalSequencePlanV2({
+    version: '2-global-sequence-plan',
+    dispositions: [],
+    selectedEntryExitPairs: [],
+    executionSteps: [],
+    transitions: [],
+    threadBlocks: [],
+    executionLayers: [],
+    byObjectId: {},
+    valid: false,
+    errors: mergeFlatErrors(errors),
+    warnings: [],
+    summary,
+    config,
+    metadata: {
+      inputMutationsDetected,
+      upstreamRejectedBeforeSequencing: true,
+      globalSequenceCreated: false,
+      threadBlocksCreated: false,
+      finalEntryExitPairsSelected: false,
+      canonicalCommandsGenerated: false,
+    },
+  });
+}
+
 export function buildGlobalSequencePlan({ regions = [], threadedObjectMaterialization, technicalPlan, config: rawConfig = {} }) {
   const before = snapshot({ regions, threadedObjectMaterialization, technicalPlan, rawConfig });
   const objects = threadedObjectMaterialization?.objects || []; const threads = threadedObjectMaterialization?.threads || [];
@@ -182,6 +223,44 @@ export function buildGlobalSequencePlan({ regions = [], threadedObjectMaterializ
   const errors = [...configValidation.errors]; const warnings = [];
   objects.forEach((object, index) => errors.push(...validateEmbroideryObjectV2(object).errors.map(item => ({ ...item, path: `objects[${index}].${item.path}` }))));
   threads.forEach((thread, index) => errors.push(...validateThreadDefinitionV2(thread).errors.map(item => ({ ...item, path: `threads[${index}].${item.path}` }))));
+  const objectMaterializationErrors = Array.isArray(threadedObjectMaterialization?.errors)
+    ? threadedObjectMaterialization.errors
+    : [];
+  const technicalErrors = Array.isArray(technicalPlan?.errors) ? technicalPlan.errors : [];
+  const upstreamErrors = [...objectMaterializationErrors, ...technicalErrors];
+  if (threadedObjectMaterialization?.valid === true && technicalPlan?.valid === true) {
+    upstreamErrors.push(...validateTechnicalEmbroideryPlan(
+      technicalPlan,
+      threadedObjectMaterialization,
+      regions,
+    ).errors);
+  }
+  const deduplicatedUpstreamErrors = mergeFlatErrors(upstreamErrors);
+  if (deduplicatedUpstreamErrors.length) {
+    const technicalInvalid = technicalPlan?.valid !== true;
+    const propagated = propagateFlatErrors({
+      upstreamErrors: deduplicatedUpstreamErrors,
+      localErrors: errors,
+      stage: 'global_sequencing',
+      wrapper: technicalInvalid
+        ? issue(
+          'INVALID_TECHNICAL_PLAN_UPSTREAM',
+          'technicalPlan',
+          'Global sequencing requires an explicitly valid technical plan.',
+        )
+        : issue(
+          'INVALID_THREADED_OBJECT_MATERIALIZATION_UPSTREAM',
+          'threadedObjectMaterialization',
+          'Global sequencing requires an explicitly valid threaded object materialization.',
+        ),
+    });
+    return blockedSequencePlan({
+      objects,
+      config,
+      errors: propagated,
+      inputMutationsDetected: before !== snapshot({ regions, threadedObjectMaterialization, technicalPlan, rawConfig }),
+    });
+  }
   let dispositions = applyDependencyBlocking(initialDispositions(objects, technicalPlan, config), objects, config);
   const scheduledIds = new Set(dispositions.filter(item => item.status === 'scheduled').map(item => item.objectId));
   const scheduledObjects = objects.filter(object => scheduledIds.has(object.id));

@@ -56,7 +56,13 @@ export function defineHatchEvidenceRules(input) {
     limits: [...(input.limits || []), ...(rule.limits || [])],
     state: 'candidate',
     notes: [...(rule.notes || [])],
-    activatedInProfiles: input.implementationActive === true && rule.implementationActive === true ? ['hatch-a-f-experimental'] : [],
+    activatedInProfiles: Array.isArray(rule.activatedInProfiles)
+      ? [...rule.activatedInProfiles]
+      : Array.isArray(input.activatedInProfiles)
+        ? [...input.activatedInProfiles]
+        : input.implementationActive === true && rule.implementationActive === true
+          ? ['hatch-a-f-experimental']
+          : [],
   })));
 }
 

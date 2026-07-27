@@ -1,4 +1,5 @@
 import { validateHatchEvidenceIntegrationConfig } from '../rules/hatchEvidence/profiles.js';
+import { validateHatchOverlapIntegrationConfig } from '../rules/hatchEvidence/overlapProfiles.js';
 
 export const DEFAULT_OBJECT_PLANNING_CONFIG = Object.freeze({
   designWidthMm: 100, designHeightMm: 100, includeBackground: false,
@@ -30,7 +31,10 @@ export function resolveObjectPlanningConfig(config = {}) {
 
 export function validateObjectPlanningConfig(config = {}, options = {}) {
   const resolved = resolveObjectPlanningConfig(config);
-  const errors = [...validateHatchEvidenceIntegrationConfig(config, options).errors];
+  const errors = [
+    ...validateHatchEvidenceIntegrationConfig(config, options).errors,
+    ...validateHatchOverlapIntegrationConfig(config).errors,
+  ];
   if (Object.hasOwn(config || {}, 'extras') && !plainObject(config.extras)) {
     errors.push(issue('INVALID_OBJECT_PLANNING_EXTRAS', 'extras', 'extras must be an object when provided.'));
   }

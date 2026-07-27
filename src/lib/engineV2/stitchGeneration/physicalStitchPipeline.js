@@ -1,4 +1,5 @@
 import { isPointInEffectiveObjectArea, isPointOnObjectBoundary } from '../technical/objectGeometryMetrics.js';
+import { mergeFlatErrors, propagateFlatErrors } from '../errorPropagation.js';
 import { validateGlobalSequencePlan } from '../sequencing/sequencePlanningValidation.js';
 import { assembleObjectPhysicalStitchPath } from './objectPathAssembler.js';
 import { resolvePhysicalGenerationConfig, validatePhysicalGenerationConfig } from './physicalGenerationConfig.js';
@@ -12,7 +13,7 @@ import { summarizeStitchLengths } from './stitchLengthDistribution.js';
 import { generateTatamiPhysicalPath } from './tatamiStitchGenerator.js';
 
 const snapshot = value => { try { return JSON.stringify(value); } catch { return null; } };
-const issue = (code, path, message) => ({ code, path, message });
+const issue = (code, path, message, details = {}) => ({ code, path, message, ...details });
 const generators = Object.freeze({ running: generateRunningPhysicalPath, tatami: generateTatamiPhysicalPath, satin: generateSatinPhysicalPath });
 
 function pointValidForObject(point, object) {
@@ -57,8 +58,62 @@ function summaryFor(sequencePlan, dispositions, objectPaths, objectMap) {
 
 export function buildMachineIndependentPhysicalStitchPlan({ regions = [], threadedObjectMaterialization, technicalPlan, sequencePlan, config: rawConfig = {} }) {
   const before = snapshot({ regions, threadedObjectMaterialization, technicalPlan, sequencePlan, rawConfig }); const config = resolvePhysicalGenerationConfig(rawConfig); const configValidation = validatePhysicalGenerationConfig(config);
-  const sequenceValidation = validateGlobalSequencePlan(sequencePlan, threadedObjectMaterialization, technicalPlan); const errors = [...configValidation.errors, ...sequenceValidation.errors]; const warnings = [...configValidation.warnings, ...sequenceValidation.warnings];
+  const allUpstreamValid = threadedObjectMaterialization?.valid === true
+    && technicalPlan?.valid === true
+    && sequencePlan?.valid === true;
+  const sequenceValidation = allUpstreamValid
+    ? validateGlobalSequencePlan(sequencePlan, threadedObjectMaterialization, technicalPlan)
+    : { errors: [], warnings: [] };
+  const objectMaterializationErrors = Array.isArray(threadedObjectMaterialization?.errors)
+    ? threadedObjectMaterialization.errors
+    : [];
+  const technicalErrors = Array.isArray(technicalPlan?.errors) ? technicalPlan.errors : [];
+  const sequenceErrors = Array.isArray(sequencePlan?.errors) ? sequencePlan.errors : [];
+  const upstreamErrors = [
+    ...objectMaterializationErrors,
+    ...technicalErrors,
+    ...sequenceErrors,
+  ];
+  upstreamErrors.push(...sequenceValidation.errors);
+  const deduplicatedUpstreamErrors = mergeFlatErrors(upstreamErrors);
+  const errors = deduplicatedUpstreamErrors.length
+    ? propagateFlatErrors({
+      upstreamErrors: deduplicatedUpstreamErrors,
+      localErrors: configValidation.errors,
+      stage: 'physical_stitch_generation',
+      wrapper: sequencePlan?.valid !== true
+        ? issue('INVALID_SEQUENCE_PLAN_UPSTREAM', 'sequencePlan', 'Physical generation requires a valid sequence plan.')
+        : technicalPlan?.valid !== true
+          ? issue('INVALID_TECHNICAL_PLAN_UPSTREAM', 'technicalPlan', 'Physical generation requires a valid technical plan.')
+          : issue('INVALID_THREADED_OBJECT_MATERIALIZATION_UPSTREAM', 'threadedObjectMaterialization', 'Physical generation requires a valid threaded object materialization.'),
+    })
+    : mergeFlatErrors(configValidation.errors);
+  const warnings = [...configValidation.warnings, ...sequenceValidation.warnings];
   const objectMap = new Map((threadedObjectMaterialization?.objects || []).map(item => [item.id, item])); const specificationMap = new Map((technicalPlan?.specifications || []).map(item => [item.objectId, item])); const selectionMap = new Map((sequencePlan?.selectedEntryExitPairs || []).map(item => [item.objectId, item]));
+  if (deduplicatedUpstreamErrors.length) {
+    const sourceSequence = { executionSteps: sequencePlan?.executionSteps || [] };
+    const summary = summaryFor(sourceSequence, [], [], objectMap);
+    return createMachineIndependentPhysicalStitchPlanV2({
+      version: '2-machine-independent-physical-stitch-plan',
+      dispositions: [],
+      objectPaths: [],
+      executionOrder: [],
+      threadBlockReferences: [],
+      valid: false,
+      errors: mergeFlatErrors(errors),
+      warnings,
+      summary,
+      config,
+      metadata: {
+        inputMutationsDetected: false,
+        upstreamRejectedBeforePhysicalGeneration: true,
+        physicalStitchesGenerated: false,
+        physicalUnderlayGenerated: false,
+        canonicalCommandsGenerated: false,
+        partialFailedPathsAccepted: 0,
+      },
+    });
+  }
   const dispositions = []; const objectPaths = []; let totalPoints = 0;
   for (const executionStep of sequencePlan?.executionSteps || []) {
     const object = objectMap.get(executionStep.objectId); const technicalSpecification = specificationMap.get(executionStep.objectId); const selectedEntryExit = selectionMap.get(executionStep.objectId); const generator = generators[object?.stitchType];

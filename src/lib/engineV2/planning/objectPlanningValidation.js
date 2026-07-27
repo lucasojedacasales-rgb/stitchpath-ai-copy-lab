@@ -1,4 +1,6 @@
 import { EMBROIDERY_PROPOSAL_ROLES, EMBROIDERY_PROPOSAL_STITCH_TYPES, proposalIdFor } from './embroideryPlanningModel.js';
+import { validateProposalDependencyIntegrity } from './dependencyPlanner.js';
+import { hatchOverlapRuleEnabled } from '../rules/hatchEvidence/overlapProfiles.js';
 
 const issue = (code, path, message) => ({ code, path, message });
 
@@ -39,23 +41,6 @@ export function validateEmbroideryObjectProposalV2(proposal) {
   return { valid: errors.length === 0, errors, warnings: [] };
 }
 
-function cycleCount(proposals) {
-  const byId = new Map(proposals.map(item => [item.id, item]));
-  const visiting = new Set();
-  const visited = new Set();
-  let cycles = 0;
-  const visit = id => {
-    if (visiting.has(id)) { cycles += 1; return; }
-    if (visited.has(id)) return;
-    visiting.add(id);
-    (byId.get(id)?.dependencyIds || []).forEach(visit);
-    visiting.delete(id);
-    visited.add(id);
-  };
-  proposals.forEach(item => visit(item.id));
-  return cycles;
-}
-
 export function validateEmbroideryObjectProposalPlan(plan, regions = [], graph, semanticResult) {
   const errors = [];
   const warnings = [];
@@ -75,16 +60,40 @@ export function validateEmbroideryObjectProposalPlan(plan, regions = [], graph, 
     if (count === 0) errors.push(issue('ACCEPTED_REGION_WITHOUT_DECISION', 'proposals', `Region "${regionId}" has no decision record.`));
     if (count > 1) errors.push(issue('MULTIPLE_REGION_DECISIONS', 'proposals', `Region "${regionId}" has ${count} decision records.`));
   });
-  const idSet = new Set(proposalIds);
-  proposals.forEach((proposal, index) => (proposal?.dependencyIds || []).forEach(dependencyId => {
-    if (!idSet.has(dependencyId)) errors.push(issue('UNKNOWN_PROPOSAL_DEPENDENCY', `proposals[${index}].dependencyIds`, `Unknown dependency "${dependencyId}".`));
-    if (dependencyId === proposal.id) errors.push(issue('SELF_PROPOSAL_DEPENDENCY', `proposals[${index}].dependencyIds`, 'Proposal cannot depend on itself.'));
-  }));
-  const cycles = cycleCount(proposals);
-  if (cycles > 0) errors.push(issue('PROPOSAL_DEPENDENCY_CYCLE', 'proposals', `Proposal graph contains ${cycles} cycle(s).`));
+  const contourEnabled = hatchOverlapRuleEnabled(plan?.config, 'CONTOUR-LAST-001');
+  const contourHistory = contourEnabled
+    || Boolean(plan?.hatchOverlapDependencyContract)
+    || Boolean(plan?.hatchOverlapIntegrationMarker)
+    || Boolean(plan?.hatchOverlapTrace)
+    || plan?.metadata?.hatchOverlapEvaluatorInvoked === true
+    || proposals.some(proposal => Object.hasOwn(proposal?.source || {}, 'hatchOverlap'));
+  const dependencyIntegrity = validateProposalDependencyIntegrity({
+    proposals,
+    regions,
+    graph,
+    semanticResult,
+    config: plan?.config,
+    executionLayers: plan?.executionLayers,
+    contourDependencyContract: plan?.hatchOverlapDependencyContract,
+    hatchOverlapTrace: plan?.hatchOverlapTrace,
+    contourIntegrationMarker: plan?.hatchOverlapIntegrationMarker,
+    metadata: plan?.metadata,
+    requireContourContract: contourHistory,
+    requireContourTrace: contourHistory,
+    requireContourMarker: contourHistory,
+  });
+  errors.push(...dependencyIntegrity.errors);
   if (plan?.metadata?.inputMutationsDetected === true) errors.push(issue('PLANNING_INPUT_MUTATION', 'metadata.inputMutationsDetected', 'Planning mutated source inputs.'));
   if (plan?.summary?.decisionCoveragePercent !== 100 && regionIds.size > 0) errors.push(issue('DECISION_COVERAGE_BELOW_100', 'summary.decisionCoveragePercent', 'Every accepted region must receive one decision.'));
   if (graph && [...regionIds].some(id => !graph.nodes?.[id])) errors.push(issue('PLANNING_GRAPH_REGION_MISMATCH', 'graph', 'Planning graph is missing source regions.'));
-  if (semanticResult?.assessments && semanticResult.assessments.some(item => !regionIds.has(item.regionId))) warnings.push(issue('SEMANTIC_RESULT_EXTRA_REGION', 'semanticResult', 'Semantic result contains a region outside this plan.'));
-  return { valid: errors.length === 0, errors, warnings, dependencyCycleCount: cycles };
+  const semanticAssessmentRegionIds = contourEnabled
+    ? dependencyIntegrity.canonicalContract?.semanticAuthority?.assessments?.regionIds || []
+    : (semanticResult?.assessments || []).map(item => item.regionId);
+  if (semanticAssessmentRegionIds.some(regionId => !regionIds.has(regionId))) warnings.push(issue('SEMANTIC_RESULT_EXTRA_REGION', 'semanticResult', 'Semantic result contains a region outside this plan.'));
+  return {
+    valid: errors.length === 0,
+    errors,
+    warnings,
+    dependencyCycleCount: dependencyIntegrity.cycleProposalIds.length,
+  };
 }

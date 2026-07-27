@@ -1,4 +1,5 @@
 import { validateEmbroideryObjectProposalV2 } from '../planning/objectPlanningValidation.js';
+import { propagateFlatErrors } from '../errorPropagation.js';
 import { buildDraftPlanningParameters, createEmbroideryObjectDraftV2 } from './embroideryObjectDraftModel.js';
 import { translateProposalDependenciesToDrafts } from './draftDependencyTranslator.js';
 import { validateObjectDraftMaterialization } from './objectDraftValidation.js';
@@ -9,10 +10,85 @@ const same = (left, right) => JSON.stringify(left) === JSON.stringify(right);
 function snapshot(value) { try { return JSON.stringify(value); } catch { return null; } }
 function count(items, field, value) { return items.filter(item => item[field] === value).length; }
 
+function blockedMaterialization({ proposals, review, metadata }) {
+  const decisions = review.decisions;
+  const dependencyCompatibilityErrors = review.errors.some(error =>
+    ['UNKNOWN_PROPOSAL_DEPENDENCY', 'CONTOUR_LAST_UNKNOWN_DEPENDENCY'].includes(error.code))
+    ? [{
+      code: 'REQUIRED_DEPENDENCY_NOT_MATERIALIZED',
+      path: 'proposals',
+      message: 'A required proposal dependency is unavailable; no drafts were materialized.',
+    }]
+    : [];
+  return {
+    version: '2-object-draft-materialization',
+    decisions,
+    drafts: [],
+    byDecisionId: Object.fromEntries(decisions.map(item => [item.id, item])),
+    byProposalId: Object.fromEntries(decisions.map(item => [item.proposalId, item])),
+    byDraftId: {},
+    byRegionId: {},
+    executionLayers: [],
+    valid: false,
+    errors: propagateFlatErrors({
+      upstreamErrors: review.errors,
+      localErrors: dependencyCompatibilityErrors,
+      stage: 'object_draft_materialization',
+      wrapper: {
+        code: 'INVALID_PROPOSAL_REVIEW_UPSTREAM',
+        path: 'proposalReview',
+        message: 'Draft materialization requires a valid proposal review.',
+      },
+    }),
+    warnings: review.warnings,
+    summary: {
+      sourceProposalCount: proposals.length,
+      decisionCount: decisions.length,
+      proposalDispositionCoveragePercent: proposals.length ? decisions.length / proposals.length * 100 : 100,
+      silentProposalDropCount: Math.max(0, proposals.length - decisions.length),
+      acceptedDecisionCount: 0,
+      excludedDecisionCount: count(decisions, 'action', 'exclude'),
+      deferredDecisionCount: count(decisions, 'action', 'defer'),
+      rejectedDecisionCount: count(decisions, 'action', 'reject'),
+      overriddenDecisionCount: 0,
+      blockedDecisionCount: count(decisions, 'action', 'blocked'),
+      materializedDraftCount: 0,
+      baseFillDraftCount: 0,
+      foregroundFillDraftCount: 0,
+      internalDetailDraftCount: 0,
+      darkDetailDraftCount: 0,
+      highlightDraftCount: 0,
+      outerOutlineDraftCount: 0,
+      innerOutlineDraftCount: 0,
+      manualStitchDraftCount: 0,
+      pendingThreadAssignmentCount: 0,
+      dependencyCount: 0,
+      dependencyCycleCount: 0,
+      syntheticOutlineDraftCount: 0,
+      geometryMutationCount: 0,
+      visualColorMutationCount: 0,
+      threadIdCount: 0,
+      stitchCoordinateCount: 0,
+      canonicalCommandCount: 0,
+    },
+    config: review.config,
+    metadata,
+  };
+}
+
 export function materializeEmbroideryObjectDrafts({ regions = [], graph, semanticResult, proposalPlan, explicitReviewDecisions = [], config = {} }) {
   const before = snapshot({ regions, graph, semanticResult, proposalPlan, explicitReviewDecisions });
-  const review = resolveProposalReviewDecisions({ plan: proposalPlan, explicitReviewDecisions, config });
+  const review = resolveProposalReviewDecisions({
+    plan: proposalPlan,
+    regions,
+    graph,
+    semanticResult,
+    explicitReviewDecisions,
+    config,
+  });
   const proposals = [...(proposalPlan?.proposals || [])].sort((a, b) => a.id.localeCompare(b.id));
+  const metadata = { inputMutationsDetected: before !== snapshot({ regions, graph, semanticResult, proposalPlan, explicitReviewDecisions }) };
+  if (!review.valid) return blockedMaterialization({ proposals, review, metadata });
   const regionIds = new Set(regions.map(item => item.id));
   const decisionMap = new Map(review.decisions.map(item => [item.proposalId, item]));
   const candidates = proposals.filter(proposal => {
@@ -95,7 +171,7 @@ export function materializeEmbroideryObjectDrafts({ regions = [], graph, semanti
     warnings: [...review.warnings, ...translated.warnings],
     summary,
     config: review.config,
-    metadata: { inputMutationsDetected: before !== snapshot({ regions, graph, semanticResult, proposalPlan, explicitReviewDecisions }) },
+    metadata,
   };
   const validation = validateObjectDraftMaterialization(materialization, proposalPlan, regions);
   return { ...materialization, valid: materialization.errors.length === 0 && validation.valid, errors: [...materialization.errors, ...validation.errors], warnings: [...materialization.warnings, ...validation.warnings] };

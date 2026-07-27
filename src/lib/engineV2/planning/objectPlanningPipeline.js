@@ -1,10 +1,16 @@
 import { analyzeArtworkColor } from '../semantics/colorFeatureAnalysis.js';
 import { analyzeRegionGeometryFeatures } from '../semantics/geometryFeatureAnalysis.js';
 import { createSemanticRegionAssessmentV2 } from '../semantics/semanticRoleModel.js';
-import { buildEmbroideryProposalDependencies } from './dependencyPlanner.js';
+import {
+  buildEmbroideryProposalDependencies,
+  createContourIntegrationMarker,
+  normalizeCanonicalSemanticResult,
+} from './dependencyPlanner.js';
 import { planEmbroideryRoleForRegion } from './embroideryRolePlanner.js';
 import { resolveObjectPlanningConfig, validateObjectPlanningConfig } from './planningConfig.js';
 import { validateEmbroideryObjectProposalPlan } from './objectPlanningValidation.js';
+import { evaluateContourLastProposalGuard } from '../rules/hatchEvidence/contourLast.js';
+import { resolveHatchOverlapIntegrationConfig } from '../rules/hatchEvidence/overlapProfiles.js';
 
 function snapshot(value) {
   try { return JSON.stringify(value); } catch { return null; }
@@ -53,8 +59,16 @@ export function buildEmbroideryObjectProposalPlan({
   const before = snapshot({ regions: sourceRegions, graph, semanticResult });
   const configValidation = validateObjectPlanningConfig(config, { technicalConfig });
   const resolvedConfig = resolveObjectPlanningConfig(config);
+  const overlapIntegration = resolveHatchOverlapIntegrationConfig(config);
+  const contourLastEnabled = overlapIntegration.enabledRuleIds.includes('CONTOUR-LAST-001');
+  const semanticNormalization = normalizeCanonicalSemanticResult(semanticResult, {
+    strict: contourLastEnabled,
+    expectedRegionIds: sourceRegions.map(region => region.id),
+  });
   const proposals = [...sourceRegions].sort((a, b) => String(a.id).localeCompare(String(b.id))).map(region => {
-    const assessment = semanticResult?.byRegionId?.[region.id]
+    const assessment = (contourLastEnabled
+      ? semanticNormalization.byRegionId[region.id]
+      : semanticResult?.byRegionId?.[region.id])
       || createSemanticRegionAssessmentV2({ regionId: region.id, semanticRole: 'unknown', confidence: 0, needsReview: true, evidence: [{ code: 'MISSING_SEMANTIC_ASSESSMENT', message: 'No semantic assessment was provided.' }] });
     return planEmbroideryRoleForRegion({
       region, graph, semanticAssessment: assessment,
@@ -64,8 +78,28 @@ export function buildEmbroideryObjectProposalPlan({
       technicalConfig,
     });
   });
-  const dependencyResult = buildEmbroideryProposalDependencies(proposals, sourceRegions, graph, semanticResult, resolvedConfig);
-  const planned = dependencyResult.proposals;
+  const dependencyResult = buildEmbroideryProposalDependencies(
+    proposals,
+    sourceRegions,
+    graph,
+    semanticResult,
+    resolvedConfig,
+    semanticNormalization,
+  );
+  const contourGuard = contourLastEnabled
+    ? evaluateContourLastProposalGuard({
+      proposals: dependencyResult.proposals,
+      regions: sourceRegions,
+      graph,
+      semanticResult,
+      semanticNormalization,
+      config: resolvedConfig,
+      executionLayers: dependencyResult.executionLayers,
+      contourDependencyContract: dependencyResult.contourDependencyContract,
+      integration: overlapIntegration,
+    })
+    : null;
+  const planned = contourGuard?.proposals || dependencyResult.proposals;
   const summary = summaryFor(sourceRegions, planned, dependencyResult);
   const plan = {
     version: '2-object-planning-proposals',
@@ -74,11 +108,27 @@ export function buildEmbroideryObjectProposalPlan({
     byRegionId: Object.fromEntries(planned.map(item => [item.regionId, item])),
     executionLayers: dependencyResult.executionLayers,
     valid: true,
-    errors: [...configValidation.errors],
+    errors: [...configValidation.errors, ...(contourGuard?.errors || [])],
     warnings: [...dependencyResult.warnings],
     summary,
     config: resolvedConfig,
-    metadata: { inputMutationsDetected: before !== snapshot({ regions: sourceRegions, graph, semanticResult }) },
+    metadata: {
+      inputMutationsDetected: before !== snapshot({ regions: sourceRegions, graph, semanticResult }),
+      ...(contourGuard ? {
+        hatchOverlapEvaluatorInvoked: true,
+        contourLastDependenciesChanged: false,
+        contourLastGeometryChanged: false,
+        contourLastStitchTechniqueChanged: false,
+      } : {}),
+    },
+    ...(contourGuard ? {
+      hatchOverlapDependencyContract: dependencyResult.contourDependencyContract,
+      hatchOverlapIntegrationMarker: createContourIntegrationMarker({
+        integration: overlapIntegration,
+        contract: dependencyResult.contourDependencyContract,
+      }),
+    } : {}),
+    ...(contourGuard ? { hatchOverlapTrace: contourGuard.trace } : {}),
   };
   const validation = validateEmbroideryObjectProposalPlan(plan, sourceRegions, graph, semanticResult);
   return { ...plan, valid: plan.errors.length === 0 && validation.valid, errors: [...plan.errors, ...validation.errors], warnings: [...plan.warnings, ...validation.warnings] };

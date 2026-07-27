@@ -2,6 +2,7 @@ import { HATCH_FABRIC_EVIDENCE_RULES } from './fabrics.js';
 import { HATCH_HOLE_EVIDENCE_RULES } from './holes.js';
 import { HATCH_MASTER_EVIDENCE_SOURCE, validateHatchEvidenceRule } from './model.js';
 import { HATCH_OVERLAP_EVIDENCE_RULES, HATCH_OVERLAP_REVIEW_AUDIT } from './overlaps.js';
+import { DEFAULT_HATCH_OVERLAP_RULE_FLAGS, HATCH_OVERLAP_RULE_IDS } from './overlapProfiles.js';
 import { DEFAULT_HATCH_EVIDENCE_RULE_FLAGS, HATCH_EVIDENCE_RULE_IDS } from './profiles.js';
 import { HATCH_SCALING_EVIDENCE_RULES } from './scaling.js';
 import { HATCH_TECHNIQUE_EVIDENCE_RULES } from './techniques.js';
@@ -32,7 +33,16 @@ export const HATCH_EVIDENCE_REGISTRY = Object.freeze({
     independentlyConfigurable: true,
     defaultEnabled: false,
   }),
-  inactivePhases: Object.freeze(['C_Solapes', 'D_Técnicas', 'E_Telas', 'F_Escalado']),
+  partialIntegrations: Object.freeze([Object.freeze({
+    profile: 'hatch-c-experimental',
+    phase: 'C_Solapes',
+    ruleIds: HATCH_OVERLAP_RULE_IDS,
+    defaultRuleFlags: DEFAULT_HATCH_OVERLAP_RULE_FLAGS,
+    independentlyConfigurable: true,
+    defaultEnabled: false,
+    integrationStatus: 'partial',
+  })]),
+  inactivePhases: Object.freeze(['D_Técnicas', 'E_Telas', 'F_Escalado']),
   reviewedClosedOverlapAudit: HATCH_OVERLAP_REVIEW_AUDIT,
   letteringIncluded: false,
 });
@@ -48,9 +58,24 @@ export function validateHatchEvidenceRegistry(registry = HATCH_EVIDENCE_REGISTRY
   if (new Set(ids).size !== ids.length) errors.push({ code: 'HATCH_EVIDENCE_DUPLICATE_RULE_ID' });
   rules.forEach((rule, index) => errors.push(...validateHatchEvidenceRule(rule).errors.map(error => ({ ...error, path: `rules[${index}].${error.field}` }))));
   if (rules.some(rule => !HATCH_EVIDENCE_PHASES.includes(rule.phase))) errors.push({ code: 'HATCH_EVIDENCE_UNKNOWN_PHASE' });
-  if (rules.some(rule => ['C_Solapes', 'D_Técnicas', 'E_Telas', 'F_Escalado'].includes(rule.phase) && rule.activatedInProfiles.length)) errors.push({ code: 'HATCH_EVIDENCE_UNAUTHORIZED_PHASE_ACTIVATION' });
+  const contourLast = rules.find(rule => rule.id === 'CONTOUR-LAST-001');
+  const unauthorizedC = rules.filter(rule => rule.phase === 'C_Solapes' && rule.id !== 'CONTOUR-LAST-001')
+    .some(rule => rule.activatedInProfiles.length > 0);
+  if (unauthorizedC
+    || !contourLast
+    || JSON.stringify(contourLast.activatedInProfiles) !== JSON.stringify(['hatch-c-experimental'])) {
+    errors.push({ code: 'HATCH_EVIDENCE_UNAUTHORIZED_C_ACTIVATION' });
+  }
+  if (rules.some(rule => ['D_Técnicas', 'E_Telas', 'F_Escalado'].includes(rule.phase) && rule.activatedInProfiles.length)) errors.push({ code: 'HATCH_EVIDENCE_UNAUTHORIZED_PHASE_ACTIVATION' });
   if (registry?.activeIntegration?.ruleIds?.some(ruleId => !HATCH_EVIDENCE_RULE_IDS.includes(ruleId))) errors.push({ code: 'HATCH_EVIDENCE_UNAUTHORIZED_RULE_FLAG' });
   if (registry?.activeIntegration?.independentlyConfigurable !== true) errors.push({ code: 'HATCH_EVIDENCE_RULE_FLAGS_NOT_INDEPENDENT' });
+  const cIntegration = registry?.partialIntegrations?.find(item => item?.phase === 'C_Solapes');
+  if (!cIntegration
+    || cIntegration.profile !== 'hatch-c-experimental'
+    || JSON.stringify(cIntegration.ruleIds) !== JSON.stringify(HATCH_OVERLAP_RULE_IDS)
+    || cIntegration.integrationStatus !== 'partial') {
+    errors.push({ code: 'HATCH_EVIDENCE_C_PARTIAL_INTEGRATION_INVALID' });
+  }
   if (registry?.letteringIncluded !== false) errors.push({ code: 'HATCH_EVIDENCE_LETTERING_MUST_REMAIN_EXCLUDED' });
   return { valid: errors.length === 0, errors, warnings: [] };
 }

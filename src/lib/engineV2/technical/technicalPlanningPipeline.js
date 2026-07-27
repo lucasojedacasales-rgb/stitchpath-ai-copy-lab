@@ -1,4 +1,5 @@
 import { validateEmbroideryObjectV2, validateThreadDefinitionV2 } from '../modelValidation.js';
+import { mergeFlatErrors, propagateFlatErrors } from '../errorPropagation.js';
 import { planEntryExitCandidates } from './entryExitCandidatePlanner.js';
 import { planFillAngle } from './fillAnglePlanner.js';
 import { BUILT_IN_MATERIAL_PROFILES } from './materialProfileModel.js';
@@ -10,7 +11,7 @@ import { resolveTechnicalPlanningConfig, validateTechnicalPlanningConfig } from 
 import { validateTechnicalEmbroideryPlan } from './technicalPlanningValidation.js';
 import { planObjectUnderlay } from './underlayPlanner.js';
 
-const issue = (code, path, message) => ({ code, path, message });
+const issue = (code, path, message, details = {}) => ({ code, path, message, ...details });
 const snapshot = value => { try { return JSON.stringify(value); } catch { return null; } };
 
 function fingerprint(value) {
@@ -52,6 +53,28 @@ function summaryFor(objects, specifications) {
   };
 }
 
+function blockedTechnicalPlan({ objects, materialProfile, config, errors, warnings, metadata }) {
+  const summary = summaryFor(objects, []);
+  return {
+    version: '2-technical-embroidery-plan',
+    materialProfile,
+    specifications: [],
+    bySpecificationId: {},
+    byObjectId: {},
+    executionLayers: [],
+    valid: false,
+    errors: mergeFlatErrors(errors),
+    warnings,
+    summary,
+    config,
+    metadata: {
+      ...metadata,
+      upstreamRejectedBeforeTechnicalPlanning: true,
+      technicalSpecificationsCreated: false,
+    },
+  };
+}
+
 export function buildTechnicalEmbroideryPlan({ regions = [], threadedObjectMaterialization, config: rawConfig = {} }) {
   const before = snapshot({ regions, threadedObjectMaterialization, rawConfig });
   const configValidation = validateTechnicalPlanningConfig(rawConfig);
@@ -59,13 +82,40 @@ export function buildTechnicalEmbroideryPlan({ regions = [], threadedObjectMater
   const materialProfile = configValidation.materialProfile ?? BUILT_IN_MATERIAL_PROFILES.generic_medium_woven;
   const objects = [...(threadedObjectMaterialization?.objects || [])]; const threads = threadedObjectMaterialization?.threads || [];
   const threadIds = new Set(threads.map(item => item.id)); const regionIds = new Set(regions.map(item => item.id));
-  const errors = [...configValidation.errors]; const warnings = [...configValidation.warnings];
+  const sourceErrors = Array.isArray(threadedObjectMaterialization?.errors)
+    ? threadedObjectMaterialization.errors
+    : [];
+  const upstreamErrors = [...sourceErrors];
+  const warnings = [...configValidation.warnings];
   objects.forEach((object, index) => {
-    const validation = validateEmbroideryObjectV2(object); errors.push(...validation.errors.map(item => ({ ...item, path: `objects[${index}].${item.path}` })));
-    if (!threadIds.has(object.threadId)) errors.push(issue('TECHNICAL_INPUT_UNKNOWN_THREAD', `objects[${index}].threadId`, `Unknown thread "${object.threadId}".`));
-    if (!regionIds.has(object.regionId)) errors.push(issue('TECHNICAL_INPUT_UNKNOWN_REGION', `objects[${index}].regionId`, `Unknown region "${object.regionId}".`));
+    const validation = validateEmbroideryObjectV2(object);
+    upstreamErrors.push(...validation.errors.map(item => ({ ...item, path: `objects[${index}].${item.path}` })));
+    if (!threadIds.has(object.threadId)) upstreamErrors.push(issue('TECHNICAL_INPUT_UNKNOWN_THREAD', `objects[${index}].threadId`, `Unknown thread "${object.threadId}".`));
+    if (!regionIds.has(object.regionId)) upstreamErrors.push(issue('TECHNICAL_INPUT_UNKNOWN_REGION', `objects[${index}].regionId`, `Unknown region "${object.regionId}".`));
   });
-  threads.forEach((thread, index) => errors.push(...validateThreadDefinitionV2(thread).errors.map(item => ({ ...item, path: `threads[${index}].${item.path}` }))));
+  threads.forEach((thread, index) => upstreamErrors.push(...validateThreadDefinitionV2(thread).errors.map(item => ({ ...item, path: `threads[${index}].${item.path}` }))));
+  const deduplicatedUpstreamErrors = mergeFlatErrors(upstreamErrors);
+  const errors = deduplicatedUpstreamErrors.length
+    ? propagateFlatErrors({
+      upstreamErrors: deduplicatedUpstreamErrors,
+      localErrors: configValidation.errors,
+      stage: 'technical_planning',
+      wrapper: issue(
+        'INVALID_THREADED_OBJECT_MATERIALIZATION_UPSTREAM',
+        'threadedObjectMaterialization',
+        'Technical planning requires an explicitly valid threaded object materialization.',
+      ),
+    })
+    : mergeFlatErrors(configValidation.errors);
+  const baseMetadata = { inputMutationsDetected: before !== snapshot({ regions, threadedObjectMaterialization, rawConfig }), technicalSpecificationsCreated: true, objectMutationsDetected: false, threadBlocksCreated: 0, physicalStitchesGenerated: false, physicalUnderlayGenerated: false, finalEntryExitPairSelected: false, globalSequencingApplied: false, travelOptimizationApplied: false, canonicalCommandsGenerated: false, machineAdaptationApplied: false, encodingApplied: false };
+  if (deduplicatedUpstreamErrors.length) return blockedTechnicalPlan({
+    objects,
+    materialProfile,
+    config,
+    errors,
+    warnings,
+    metadata: baseMetadata,
+  });
   const objectMap = new Map(objects.map(item => [item.id, item])); const specificationMap = new Map();
   const layerOrder = Array.isArray(threadedObjectMaterialization?.executionLayers) && threadedObjectMaterialization.executionLayers.flat().length === objects.length ? threadedObjectMaterialization.executionLayers.map(layer => [...layer].sort()) : [objects.map(item => item.id).sort()];
   layerOrder.flat().forEach(objectId => {
@@ -111,7 +161,7 @@ export function buildTechnicalEmbroideryPlan({ regions = [], threadedObjectMater
     version: '2-technical-embroidery-plan', materialProfile, specifications,
     bySpecificationId: Object.fromEntries(specifications.map(item => [item.id, item])), byObjectId: Object.fromEntries(specifications.map(item => [item.objectId, item])),
     executionLayers: layerOrder.map(layer => [...layer]), valid: errors.length === 0, errors, warnings, summary, config,
-    metadata: { inputMutationsDetected: before !== snapshot({ regions, threadedObjectMaterialization, rawConfig }), technicalSpecificationsCreated: true, objectMutationsDetected: false, threadBlocksCreated: 0, physicalStitchesGenerated: false, physicalUnderlayGenerated: false, finalEntryExitPairSelected: false, globalSequencingApplied: false, travelOptimizationApplied: false, canonicalCommandsGenerated: false, machineAdaptationApplied: false, encodingApplied: false },
+    metadata: baseMetadata,
   };
   const validation = validateTechnicalEmbroideryPlan(plan, threadedObjectMaterialization, regions);
   return { ...plan, valid: plan.valid && validation.valid, errors: [...plan.errors, ...validation.errors], warnings: [...plan.warnings, ...validation.warnings] };

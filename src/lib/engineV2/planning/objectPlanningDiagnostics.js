@@ -48,6 +48,14 @@ export function createObjectPlanningDiagnostic({ regions = [], graph, semanticRe
     stitchCoordinatesGenerated: proposals.some(item => Object.hasOwn(item, 'stitches') || Object.hasOwn(item, 'stitchCoordinates')),
     canonicalCommandsGenerated: proposals.some(item => Object.hasOwn(item, 'commands') || Object.hasOwn(item, 'canonicalCommands')),
     machineAdaptationApplied: false,
+    ...(plan?.hatchOverlapTrace ? {
+      hatchOverlapTrace: plan.hatchOverlapTrace,
+      contourLastEvaluatorInvoked: plan.hatchOverlapTrace.evaluatorInvoked === true,
+      contourLastEligibleOutlineCount: plan.hatchOverlapTrace.eligibleOutlineCount,
+      contourLastApplied: plan.hatchOverlapTrace.applied === true,
+      contourLastStatus: plan.hatchOverlapTrace.status,
+      contourLastPhysicalImprovementClaimed: false,
+    } : {}),
     errors: [...(plan?.errors || []), ...validation.errors],
     warnings: [...(plan?.warnings || []), ...validation.warnings],
   };
