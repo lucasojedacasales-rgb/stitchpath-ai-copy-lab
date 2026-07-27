@@ -16,6 +16,57 @@ const snapshot = value => { try { return JSON.stringify(value); } catch { return
 const issue = (code, path, message, details = {}) => ({ code, path, message, ...details });
 const generators = Object.freeze({ running: generateRunningPhysicalPath, tatami: generateTatamiPhysicalPath, satin: generateSatinPhysicalPath });
 
+function contextualizeGeneratorErrors(generationErrors, object) {
+  return (generationErrors || []).map(error => ({
+    ...error,
+    objectId: error?.objectId ?? object?.id ?? null,
+    generator: error?.generator ?? object?.stitchType ?? null,
+    stage: error?.stage ?? 'physical_stitch_generation',
+  }));
+}
+
+function consolidateGeneratorErrors(underlayErrors = [], topErrors = []) {
+  const underlay = Array.isArray(underlayErrors) ? underlayErrors : [];
+  const top = Array.isArray(topErrors) ? topErrors : [];
+  const satinWidthCode = 'SATIN_WIDTH_ABOVE_MAXIMUM';
+  const topHasSatinWidthCause = top.some(error => error?.code === satinWidthCode);
+  let satinWidthCauseRetained = false;
+  const consolidated = [];
+
+  const append = (collection, source) => {
+    collection.forEach(error => {
+      if (error?.code !== satinWidthCode) {
+        consolidated.push(error);
+        return;
+      }
+      if (topHasSatinWidthCause && source !== 'top') return;
+      if (satinWidthCauseRetained) return;
+      consolidated.push(error);
+      satinWidthCauseRetained = true;
+    });
+  };
+
+  append(underlay, 'underlay');
+  append(top, 'top');
+  return consolidated;
+}
+
+function generatorFailureWrapper(object, generationErrors) {
+  return issue(
+    'PHYSICAL_GENERATOR_FAILED',
+    `dispositions.${object?.id ?? 'unknown'}`,
+    'Physical generator failed.',
+    {
+      stage: 'physical_stitch_generation',
+      objectId: object?.id ?? null,
+      generator: object?.stitchType ?? null,
+      causeCodes: [...new Set(generationErrors
+        .map(error => error?.code)
+        .filter(code => typeof code === 'string'))].sort(),
+    },
+  );
+}
+
 function pointValidForObject(point, object) {
   if (point.sourceType === 'compensation_adjusted_endpoint') return true;
   if (point.phase === 'entry_anchor' || point.phase === 'exit_anchor') return true;
@@ -128,8 +179,15 @@ export function buildMachineIndependentPhysicalStitchPlan({ regions, threadedObj
     const generatedUnderlay = generatePhysicalUnderlay({ object, technicalSpecification, selectedEntryExit, config });
     const generatedTopPath = config.includeTopStitches ? generator({ object, technicalSpecification, selectedEntryExit, config }) : { valid: true, subpaths: [], errors: [], warnings: [], coverageMetrics: {} };
     if (!generatedUnderlay.valid || !generatedTopPath.valid) {
-      const generationErrors = [...(generatedUnderlay.errors || []), ...(generatedTopPath.errors || [])]; const limit = generationErrors.some(item => item.code === 'PHYSICAL_GENERATION_LIMIT_EXCEEDED');
-      dispositions.push(createObjectPhysicalStitchDispositionV2({ ...dispositionBase, status: 'blocked', reasonCode: limit ? 'PHYSICAL_GENERATION_LIMIT_EXCEEDED' : 'PHYSICAL_GENERATOR_FAILED', reason: generationErrors.map(item => item.code).join(', ') || 'Physical generator failed.', evidence: generationErrors })); warnings.push(...(generatedUnderlay.warnings || []), ...(generatedTopPath.warnings || [])); continue;
+      const generationErrors = contextualizeGeneratorErrors(
+        consolidateGeneratorErrors(generatedUnderlay.errors, generatedTopPath.errors),
+        object,
+      );
+      dispositions.push(createObjectPhysicalStitchDispositionV2({ ...dispositionBase, status: 'blocked', reasonCode: 'PHYSICAL_GENERATOR_FAILED', reason: generationErrors.map(item => item.code).join(', ') || 'Physical generator failed.', evidence: generationErrors }));
+      if (config.blockGeneratorFailure) {
+        errors.push(...generationErrors, generatorFailureWrapper(object, generationErrors));
+      }
+      warnings.push(...(generatedUnderlay.warnings || []), ...(generatedTopPath.warnings || [])); continue;
     }
     const path = assembleObjectPhysicalStitchPath({ object, technicalSpecification, executionStep, selectedEntryExit, generatedUnderlay, generatedTopPath, config });
     if (path.physicalPointCount > config.maximumPointsPerObject || totalPoints + path.physicalPointCount > config.maximumTotalPoints) { dispositions.push(createObjectPhysicalStitchDispositionV2({ ...dispositionBase, status: 'blocked', reasonCode: 'PHYSICAL_GENERATION_LIMIT_EXCEEDED', reason: 'Physical point limit exceeded; no partial path was accepted.', evidence: [{ requestedObjectPoints: path.physicalPointCount, requestedTotalPoints: totalPoints + path.physicalPointCount }] })); continue; }

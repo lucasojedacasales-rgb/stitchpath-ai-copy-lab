@@ -1,6 +1,13 @@
 import { clipScanlineToRegion, generateParallelScanlineOrigins } from './polygonScanlineClipper.js';
 import { calculatePathBounds, distanceBetweenPoints } from './stitchGeometry.js';
 
+function normalizedMetric(value, config) {
+  const precision = Number.isInteger(config?.coordinatePrecisionDecimals)
+    ? config.coordinatePrecisionDecimals
+    : 6;
+  return Number(value.toFixed(precision));
+}
+
 export function analyzeSatinCrossSections({ object, technicalSpecification, config, spacingOverride = null }) {
   if ((object.holes || []).length) return { valid: false, sections: [], errors: [{ code: 'SATIN_HOLE_INTERSECTION' }] };
   const principalAngle = technicalSpecification.fillAnglePlan?.normalizedAngleDegrees;
@@ -18,7 +25,25 @@ export function analyzeSatinCrossSections({ object, technicalSpecification, conf
   if (sections.length < 2) errors.push({ code: 'SATIN_INSUFFICIENT_CROSS_SECTIONS' });
   const minimum = technicalSpecification.stitchParameters.minimumAllowedWidthMm; const maximum = technicalSpecification.stitchParameters.maximumAllowedWidthMm;
   if (sections.some(section => section.lengthMm < minimum - config.boundaryToleranceMm)) errors.push({ code: 'SATIN_WIDTH_BELOW_MINIMUM' });
-  if (sections.some(section => section.lengthMm > maximum + config.boundaryToleranceMm)) errors.push({ code: 'SATIN_WIDTH_ABOVE_MAXIMUM' });
+  const oversizedSections = sections.filter(
+    section => section.lengthMm > maximum + config.boundaryToleranceMm,
+  );
+  if (oversizedSections.length) {
+    errors.push({
+      code: 'SATIN_WIDTH_ABOVE_MAXIMUM',
+      path: 'sections',
+      message: 'Generated satin section exceeds the allowed width.',
+      stage: 'physical_stitch_generation',
+      generator: 'satin',
+      actualMaximumWidthMm: normalizedMetric(
+        Math.max(...oversizedSections.map(section => section.lengthMm)),
+        config,
+      ),
+      maximumAllowedWidthMm: normalizedMetric(maximum, config),
+      boundaryToleranceMm: normalizedMetric(config.boundaryToleranceMm, config),
+      offendingSectionCount: oversizedSections.length,
+    });
+  }
   const widths = sections.map(section => section.lengthMm); const ratio = widths.length && Math.min(...widths) > 0 ? Math.max(...widths) / Math.min(...widths) : Infinity;
   if (ratio > Math.max(technicalSpecification.stitchParameters.widthVariationRatio * 1.05, 2)) errors.push({ code: 'SATIN_WIDTH_VARIATION_EXCEEDED' });
   return { valid: errors.length === 0, sections, errors, direction: scanlines.direction, spacingMm: spacing, widthVariationRatio: ratio };
