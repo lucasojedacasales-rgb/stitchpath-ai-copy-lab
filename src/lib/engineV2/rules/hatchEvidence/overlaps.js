@@ -21,7 +21,7 @@ export const HATCH_OVERLAP_EVIDENCE_RULES = defineHatchEvidenceRules({
     { id: 'CONTOUR-LAST-001', sourceState: 'candidata', condition: 'Contorno que delimita uno o varios rellenos', candidateAction: 'Secuenciar el contorno después de todos sus rellenos dependientes.', confidence: 0.98, evidence: 'C8, C11 y C12', activatedInProfiles: ['hatch-c-experimental'] },
     { id: 'ADJACENT-UNDERLAP-001', sourceState: 'validando', condition: 'Dos colores comparten borde sin superposición visible', candidateAction: 'Usar underlap o compensación adaptada al tejido; no confiar en una unión geométrica exacta como garantía física.', confidence: 0.82, evidence: 'C1 y C2' },
     { id: 'COLOR-GROUP-HEURISTIC-001', sourceState: 'candidata', condition: 'Optimización global de cambios de color', candidateAction: 'Tratar el agrupado por color como heurística; respetar primero el grafo inferior-superior-contorno.', confidence: 0.95, evidence: 'Secuencia de objetos 2 a 28', activatedInProfiles: ['hatch-c-experimental'] },
-    { id: 'MULTILAYER-DEPENDENCY-001', sourceState: 'candidata', condition: 'Tres o más capas concéntricas o anidadas', candidateAction: 'Construir un grafo de precedencia y recortes, no una lista plana basada solo en color.', confidence: 0.95, evidence: 'C12' },
+    { id: 'MULTILAYER-DEPENDENCY-001', sourceState: 'candidata', condition: 'Tres o más capas concéntricas o anidadas', candidateAction: 'Construir un grafo de precedencia y recortes, no una lista plana basada solo en color.', confidence: 0.95, evidence: 'C12', activatedInProfiles: ['hatch-c-experimental'] },
   ],
 });
 export const HATCH_OVERLAP_REVIEW_AUDIT = Object.freeze({

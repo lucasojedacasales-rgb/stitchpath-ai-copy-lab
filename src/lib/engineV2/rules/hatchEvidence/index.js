@@ -46,6 +46,19 @@ export {
   validateColorGroupHeuristicPlanState,
 } from './colorGroupHeuristic.js';
 export {
+  MULTILAYER_DEPENDENCY_CLAIM_BOUNDARY,
+  MULTILAYER_DEPENDENCY_CONTRACT_VERSION,
+  MULTILAYER_DEPENDENCY_CORE_ROLES,
+  MULTILAYER_DEPENDENCY_EVALUATION_VERSION,
+  MULTILAYER_DEPENDENCY_MARKER_VERSION,
+  MULTILAYER_DEPENDENCY_RULE_ID,
+  MULTILAYER_DEPENDENCY_TRACE_VERSION,
+  createMultilayerDependencyIntegrationMarker,
+  deriveCanonicalMultilayerDependencyContract,
+  evaluateMultilayerDependencyGuard,
+  validateMultilayerDependencyPlanState,
+} from './multilayerDependency.js';
+export {
   DEFAULT_HATCH_OVERLAP_PROFILE,
   DEFAULT_HATCH_OVERLAP_RULE_FLAGS,
   HATCH_OVERLAP_CONFIG_FIELDS,

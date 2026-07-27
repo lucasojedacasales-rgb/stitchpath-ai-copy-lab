@@ -1,5 +1,6 @@
 import { validateThreadBlockV2 } from '../modelValidation.js';
 import { validateColorGroupHeuristicPlanState } from '../rules/hatchEvidence/colorGroupHeuristic.js';
+import { validateMultilayerDependencyPlanState } from '../rules/hatchEvidence/multilayerDependency.js';
 import { REPEATED_THREAD_REASONS, executionStepId, selectedEntryExitIdForObject, sequenceDispositionIdForObject, transitionId } from './sequencePlanningModel.js';
 import { sequencePointDistance } from './candidatePairSelector.js';
 import { validateSequencePlanningConfig } from './sequencePlanningConfig.js';
@@ -90,7 +91,12 @@ function detectForbiddenOutput(value, path, errors) {
   });
 }
 
-export function validateGlobalSequencePlan(plan, threadedObjectMaterialization, technicalPlan) {
+export function validateGlobalSequencePlan(
+  plan,
+  threadedObjectMaterialization,
+  technicalPlan,
+  regions,
+) {
   const errors = []; const warnings = [];
   const objects = threadedObjectMaterialization?.objects || [];
   const threads = threadedObjectMaterialization?.threads || [];
@@ -172,6 +178,12 @@ export function validateGlobalSequencePlan(plan, threadedObjectMaterialization, 
   specifications.forEach(specification => { if (contracts?.technicalSpecificationFingerprints?.[specification.id] && contracts.technicalSpecificationFingerprints[specification.id] !== fingerprint(specification)) errors.push(issue('SEQUENCE_TECHNICAL_SPECIFICATION_MUTATION', `specifications.${specification.id}`, 'A source technical specification changed after sequence planning.')); });
   errors.push(...validateColorGroupHeuristicPlanState({
     plan,
+    objects,
+    config: plan?.config || {},
+  }).errors);
+  errors.push(...validateMultilayerDependencyPlanState({
+    plan,
+    regions,
     objects,
     config: plan?.config || {},
   }).errors);

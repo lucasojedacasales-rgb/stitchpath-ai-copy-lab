@@ -56,13 +56,18 @@ function summaryFor(sequencePlan, dispositions, objectPaths, objectMap) {
   };
 }
 
-export function buildMachineIndependentPhysicalStitchPlan({ regions = [], threadedObjectMaterialization, technicalPlan, sequencePlan, config: rawConfig = {} }) {
+export function buildMachineIndependentPhysicalStitchPlan({ regions, threadedObjectMaterialization, technicalPlan, sequencePlan, config: rawConfig = {} }) {
   const before = snapshot({ regions, threadedObjectMaterialization, technicalPlan, sequencePlan, rawConfig }); const config = resolvePhysicalGenerationConfig(rawConfig); const configValidation = validatePhysicalGenerationConfig(config);
   const allUpstreamValid = threadedObjectMaterialization?.valid === true
     && technicalPlan?.valid === true
     && sequencePlan?.valid === true;
   const sequenceValidation = allUpstreamValid
-    ? validateGlobalSequencePlan(sequencePlan, threadedObjectMaterialization, technicalPlan)
+    ? validateGlobalSequencePlan(
+      sequencePlan,
+      threadedObjectMaterialization,
+      technicalPlan,
+      regions,
+    )
     : { errors: [], warnings: [] };
   const objectMaterializationErrors = Array.isArray(threadedObjectMaterialization?.errors)
     ? threadedObjectMaterialization.errors
@@ -133,6 +138,6 @@ export function buildMachineIndependentPhysicalStitchPlan({ regions = [], thread
   const inputMutationsDetected = before !== snapshot({ regions, threadedObjectMaterialization, technicalPlan, sequencePlan, rawConfig }); const summary = summaryFor(sequencePlan, dispositions, objectPaths, objectMap);
   const metadata = { inputMutationsDetected, physicalStitchesGenerated: summary.physicalStitchCount > 0, physicalUnderlayGenerated: summary.underlayStitchCount > 0, globalSequenceModified: false, threadBlocksModified: false, selectedEntryExitModified: false, objectGeometryModified: false, objectHolesModified: false, objectVisualColorsModified: false, threadIdsModified: false, rolesModified: false, stitchTypesModified: false, layersModified: false, dependenciesModified: false, technicalSpecificationsModified: false, pathsTruncated: 0, partialFailedPathsAccepted: 0, canonicalCommandsGenerated: false, jumpCommandsGenerated: false, trimCommandsGenerated: false, colorChangeCommandsGenerated: false, endCommandsGenerated: false, machineAdaptationAdded: false, encodingAdded: false };
   const draft = { version: '2-machine-independent-physical-stitch-plan', dispositions, objectPaths, executionOrder: (sequencePlan?.executionSteps || []).map(item => item.objectId), threadBlockReferences: sequencePlan?.threadBlocks || [], byDispositionId: Object.fromEntries(dispositions.map(item => [item.id, item])), byObjectId: Object.fromEntries(objectPaths.map(item => [item.objectId, item])), byExecutionStepId: Object.fromEntries(objectPaths.map(item => [item.executionStepId, item])), valid: errors.length === 0, errors, warnings, summary, config, metadata };
-  const validation = validateMachineIndependentPhysicalStitchPlan(draft, threadedObjectMaterialization, technicalPlan, sequencePlan); if (!validation.valid) errors.push(...validation.errors); warnings.push(...validation.warnings);
+  const validation = validateMachineIndependentPhysicalStitchPlan(draft, threadedObjectMaterialization, technicalPlan, sequencePlan, regions); if (!validation.valid) errors.push(...validation.errors); warnings.push(...validation.warnings);
   return createMachineIndependentPhysicalStitchPlanV2({ ...draft, valid: errors.length === 0, errors, warnings });
 }

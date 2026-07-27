@@ -1,7 +1,7 @@
 import { validateMachineIndependentPhysicalStitchPlan } from './physicalStitchValidation.js';
 
 export function createPhysicalStitchDiagnostic({ regions = [], threadedObjectMaterialization, technicalPlan, sequencePlan, physicalPlan }) {
-  void regions; const validation = validateMachineIndependentPhysicalStitchPlan(physicalPlan, threadedObjectMaterialization, technicalPlan, sequencePlan); const summary = physicalPlan?.summary || {}; const metadata = physicalPlan?.metadata || {};
+  const validation = validateMachineIndependentPhysicalStitchPlan(physicalPlan, threadedObjectMaterialization, technicalPlan, sequencePlan, regions); const summary = physicalPlan?.summary || {}; const metadata = physicalPlan?.metadata || {};
   const generatorDistribution = Object.fromEntries(['running', 'tatami', 'satin'].map(generator => [generator, (physicalPlan?.objectPaths || []).filter(path => path.generator === generator).length]));
   const underlayDistribution = {}; (physicalPlan?.objectPaths || []).flatMap(path => path.subpaths).filter(subpath => subpath.phase === 'underlay').forEach(subpath => { underlayDistribution[subpath.technique] = (underlayDistribution[subpath.technique] || 0) + 1; });
   return Object.freeze({

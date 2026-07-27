@@ -63,7 +63,7 @@ function buildSummary({ sequencePlan, physicalPlan, result, metadata }) {
   };
 }
 
-export function compileCanonicalCommandStream({ regions = [], threadedObjectMaterialization, technicalPlan, sequencePlan, physicalPlan, config: rawConfig = {} }) {
+export function compileCanonicalCommandStream({ regions, threadedObjectMaterialization, technicalPlan, sequencePlan, physicalPlan, config: rawConfig = {} }) {
   const before = { objects: snapshot(threadedObjectMaterialization), technical: snapshot(technicalPlan), sequence: snapshot(sequencePlan), physical: snapshot(physicalPlan) };
   const config = resolveCanonicalCompilationConfig(rawConfig); const errors = [...validateCanonicalCompilationConfig(config).errors];
   const objects = threadedObjectMaterialization?.objects || []; const threads = threadedObjectMaterialization?.threads || [];
@@ -84,9 +84,24 @@ export function compileCanonicalCommandStream({ regions = [], threadedObjectMate
   if (allUpstreamValid) {
     objects.forEach((object, index) => upstreamErrors.push(...validateEmbroideryObjectV2(object).errors.map(item => ({ ...item, path: `objects[${index}].${item.path}` }))));
     threads.forEach((thread, index) => upstreamErrors.push(...validateThreadDefinitionV2(thread).errors.map(item => ({ ...item, path: `threads[${index}].${item.path}` }))));
-    upstreamErrors.push(...validateTechnicalEmbroideryPlan(technicalPlan, threadedObjectMaterialization, regions).errors);
-    upstreamErrors.push(...validateGlobalSequencePlan(sequencePlan, threadedObjectMaterialization, technicalPlan).errors);
-    upstreamErrors.push(...validateMachineIndependentPhysicalStitchPlan(physicalPlan, threadedObjectMaterialization, technicalPlan, sequencePlan).errors);
+    upstreamErrors.push(...validateTechnicalEmbroideryPlan(
+      technicalPlan,
+      threadedObjectMaterialization,
+      Array.isArray(regions) ? regions : [],
+    ).errors);
+    upstreamErrors.push(...validateGlobalSequencePlan(
+      sequencePlan,
+      threadedObjectMaterialization,
+      technicalPlan,
+      regions,
+    ).errors);
+    upstreamErrors.push(...validateMachineIndependentPhysicalStitchPlan(
+      physicalPlan,
+      threadedObjectMaterialization,
+      technicalPlan,
+      sequencePlan,
+      regions,
+    ).errors);
   }
   const deduplicatedUpstreamErrors = mergeFlatErrors(upstreamErrors);
   const missingPaths = (sequencePlan?.executionSteps || []).filter(step => !(physicalPlan?.objectPaths || []).some(path => path.objectId === step.objectId));

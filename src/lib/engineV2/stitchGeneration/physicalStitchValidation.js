@@ -81,8 +81,8 @@ function forbiddenOutput(value, path, errors) {
   Object.entries(value).forEach(([key, nested]) => { if (arrays.has(key) && Array.isArray(nested) && nested.length) errors.push(issue('COMMAND_OUTPUT_FORBIDDEN_IN_PHASE_9', `${path}.${key}`, `${key} is forbidden.`)); else if (objects.has(key) && nested != null && nested !== false) errors.push(issue('MACHINE_OR_ENCODING_OUTPUT_FORBIDDEN_IN_PHASE_9', `${path}.${key}`, `${key} is forbidden.`)); else forbiddenOutput(nested, `${path}.${key}`, errors); });
 }
 
-export function validateMachineIndependentPhysicalStitchPlan(physicalPlan, threadedObjectMaterialization, technicalPlan, sequencePlan) {
-  const errors = []; const warnings = []; const sequenceValidation = validateGlobalSequencePlan(sequencePlan, threadedObjectMaterialization, technicalPlan); errors.push(...sequenceValidation.errors);
+export function validateMachineIndependentPhysicalStitchPlan(physicalPlan, threadedObjectMaterialization, technicalPlan, sequencePlan, regions) {
+  const errors = []; const warnings = []; const sequenceValidation = validateGlobalSequencePlan(sequencePlan, threadedObjectMaterialization, technicalPlan, regions); errors.push(...sequenceValidation.errors);
   const scheduledSteps = sequencePlan?.executionSteps || []; const dispositions = physicalPlan?.dispositions || []; const paths = physicalPlan?.objectPaths || [];
   const objectMap = new Map((threadedObjectMaterialization?.objects || []).map(item => [item.id, item])); const specificationMap = new Map((technicalPlan?.specifications || []).map(item => [item.objectId, item])); const selectionMap = new Map((sequencePlan?.selectedEntryExitPairs || []).map(item => [item.objectId, item]));
   duplicates(dispositions.map(item => item.id)).forEach(id => errors.push(issue('DUPLICATE_PHYSICAL_DISPOSITION', 'dispositions', `Duplicate disposition "${id}".`))); duplicates(dispositions.map(item => item.objectId)).forEach(id => errors.push(issue('DUPLICATE_OBJECT_PHYSICAL_DISPOSITION', 'dispositions', `Object "${id}" has multiple dispositions.`)));

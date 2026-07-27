@@ -3,10 +3,12 @@ export const DEFAULT_HATCH_OVERLAP_PROFILE = 'legacy';
 export const HATCH_OVERLAP_RULE_IDS = Object.freeze([
   'CONTOUR-LAST-001',
   'COLOR-GROUP-HEURISTIC-001',
+  'MULTILAYER-DEPENDENCY-001',
 ]);
 export const DEFAULT_HATCH_OVERLAP_RULE_FLAGS = Object.freeze({
   'CONTOUR-LAST-001': false,
   'COLOR-GROUP-HEURISTIC-001': false,
+  'MULTILAYER-DEPENDENCY-001': false,
 });
 export const HATCH_OVERLAP_CONFIG_FIELDS = Object.freeze([
   'hatchOverlapProfile',

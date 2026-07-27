@@ -1,8 +1,12 @@
 import { validateGlobalSequencePlan } from './sequencePlanningValidation.js';
 
 export function createGlobalSequenceDiagnostic({ regions = [], threadedObjectMaterialization, technicalPlan, sequencePlan }) {
-  void regions;
-  const validation = validateGlobalSequencePlan(sequencePlan, threadedObjectMaterialization, technicalPlan);
+  const validation = validateGlobalSequencePlan(
+    sequencePlan,
+    threadedObjectMaterialization,
+    technicalPlan,
+    regions,
+  );
   const summary = sequencePlan?.summary || {};
   const metadata = sequencePlan?.metadata || {};
   const validPairCount = (sequencePlan?.selectedEntryExitPairs || []).filter(pair => pair.entryCandidateId && pair.exitCandidateId).length;
@@ -43,6 +47,24 @@ export function createGlobalSequenceDiagnostic({ regions = [], threadedObjectMat
       colorGroupHeuristicStatus: sequencePlan.colorGroupHeuristicTrace.status,
       colorGroupHeuristicDecisionCount: sequencePlan.colorGroupHeuristicTrace.decisionCount,
       colorGroupHeuristicContractFingerprint: sequencePlan.colorGroupHeuristicTrace.contractFingerprint,
+    } : {}),
+    ...(sequencePlan?.multilayerDependencyTrace ? {
+      multilayerDependencyTrace: sequencePlan.multilayerDependencyTrace,
+      multilayerDependencyActive: sequencePlan.multilayerDependencyTrace.active === true,
+      multilayerDependencyEvaluatorInvoked:
+        sequencePlan.multilayerDependencyTrace.evaluatorInvoked === true,
+      multilayerDependencyApplied: sequencePlan.multilayerDependencyTrace.applied === true,
+      multilayerDependencyStatus: sequencePlan.multilayerDependencyTrace.status,
+      multilayerDependencyClaimCount: sequencePlan.multilayerDependencyTrace.claimCount,
+      multilayerDependencyContractFingerprint:
+        sequencePlan.multilayerDependencyTrace.contractFingerprint,
+      multilayerDependencyScope: sequencePlan.multilayerDependencyTrace.scope,
+      multilayerDependencyCutoutEvaluated:
+        sequencePlan.multilayerDependencyTrace.cutoutEvaluated === true,
+      multilayerDependencyCutoutCorrectnessClaimed:
+        sequencePlan.multilayerDependencyTrace.cutoutCorrectnessClaimed === true,
+      multilayerDependencyPhysicalImprovementClaimed:
+        sequencePlan.multilayerDependencyTrace.physicalImprovementClaimed === true,
     } : {}),
     objectMutationsDetected: metadata.objectMutationsDetected === true,
     technicalSpecificationMutationsDetected: metadata.technicalSpecificationMutationsDetected === true,

@@ -152,5 +152,21 @@ export function createGlobalSequencePlanV2(input = {}) {
     ...(Object.hasOwn(input, 'colorGroupHeuristicTrace')
       ? { colorGroupHeuristicTrace: clone(input.colorGroupHeuristicTrace) }
       : {}),
+    ...(Object.hasOwn(input, 'multilayerDependencyContract')
+      ? { multilayerDependencyContract: clone(input.multilayerDependencyContract) }
+      : {}),
+    ...(Object.hasOwn(input, 'multilayerDependencyEvaluation')
+      ? { multilayerDependencyEvaluation: clone(input.multilayerDependencyEvaluation) }
+      : {}),
+    ...(Object.hasOwn(input, 'multilayerDependencyIntegrationMarker')
+      ? {
+        multilayerDependencyIntegrationMarker: clone(
+          input.multilayerDependencyIntegrationMarker,
+        ),
+      }
+      : {}),
+    ...(Object.hasOwn(input, 'multilayerDependencyTrace')
+      ? { multilayerDependencyTrace: clone(input.multilayerDependencyTrace) }
+      : {}),
   });
 }

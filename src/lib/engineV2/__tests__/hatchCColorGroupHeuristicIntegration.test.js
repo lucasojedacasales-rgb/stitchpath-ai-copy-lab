@@ -14,6 +14,7 @@ import {
   deriveCanonicalColorGroupHeuristicContract,
 } from '../rules/hatchEvidence/colorGroupHeuristic.js';
 import { CONTOUR_LAST_RULE_ID } from '../rules/hatchEvidence/contourLast.js';
+import { MULTILAYER_DEPENDENCY_RULE_ID } from '../rules/hatchEvidence/multilayerDependency.js';
 import {
   DEFAULT_HATCH_OVERLAP_RULE_FLAGS,
   HATCH_OVERLAP_RULE_IDS,
@@ -76,14 +77,16 @@ function executeDownstream(fixture, sequencePlan) {
 }
 
 describe('Hatch C2 independent configuration and registry', () => {
-  it('registers exactly the independent C1 and C2 flags, both OFF by default', () => {
+  it('registers exactly the independent C1, C2 and C3 flags, all OFF by default', () => {
     expect(HATCH_OVERLAP_RULE_IDS).toEqual([
       CONTOUR_LAST_RULE_ID,
       COLOR_GROUP_HEURISTIC_RULE_ID,
+      MULTILAYER_DEPENDENCY_RULE_ID,
     ]);
     expect(DEFAULT_HATCH_OVERLAP_RULE_FLAGS).toEqual({
       [CONTOUR_LAST_RULE_ID]: false,
       [COLOR_GROUP_HEURISTIC_RULE_ID]: false,
+      [MULTILAYER_DEPENDENCY_RULE_ID]: false,
     });
   });
 
@@ -150,7 +153,7 @@ describe('Hatch C2 independent configuration and registry', () => {
       .toContain('HATCH_OVERLAP_RULE_FLAG_REQUIRES_EXPERIMENTAL_PROFILE');
   });
 
-  it('activates only C1 and C2 in C while the other six C rules and D-F remain inactive', () => {
+  it('activates only C1, C2 and C3 in C while the other five C rules and D-F remain inactive', () => {
     const cRules = HATCH_EVIDENCE_RULES.filter(rule => rule.phase === 'C_Solapes');
     HATCH_OVERLAP_RULE_IDS.forEach(ruleId => expect(
       cRules.find(rule => rule.id === ruleId).activatedInProfiles,
@@ -335,6 +338,7 @@ describe('Hatch C2 canonical color-group accreditation', () => {
     expect(resolveHatchOverlapIntegrationConfig(plan.config).ruleFlags).toEqual({
       [CONTOUR_LAST_RULE_ID]: c1,
       [COLOR_GROUP_HEURISTIC_RULE_ID]: c2,
+      [MULTILAYER_DEPENDENCY_RULE_ID]: false,
     });
     expect(Object.hasOwn(plan, 'colorGroupHeuristicTrace')).toBe(c2);
   });
