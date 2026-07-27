@@ -1,3 +1,5 @@
+import { validateHatchOverlapIntegrationConfig } from '../rules/hatchEvidence/overlapProfiles.js';
+
 export const SEQUENCE_PLANNING_ALGORITHMS = Object.freeze(['auto', 'exact', 'beam']);
 
 export const DEFAULT_SEQUENCE_PLANNING_CONFIG = Object.freeze({
@@ -32,19 +34,33 @@ export const DEFAULT_SEQUENCE_PLANNING_CONFIG = Object.freeze({
 const finitePoint = point => point === null || (
   point && typeof point === 'object' && Number.isFinite(point.x) && Number.isFinite(point.y)
 );
+const plainObject = value => Boolean(value) && typeof value === 'object' && !Array.isArray(value);
 
 export function resolveSequencePlanningConfig(input = {}) {
+  const source = plainObject(input) ? input : {};
   const known = new Set(Object.keys(DEFAULT_SEQUENCE_PLANNING_CONFIG));
-  const extras = Object.fromEntries(Object.entries(input || {}).filter(([key]) => !known.has(key)));
+  const nestedExtras = plainObject(source.extras) ? source.extras : {};
+  const topLevelExtras = Object.fromEntries(
+    Object.entries(source).filter(([key]) => key !== 'extras' && !known.has(key)),
+  );
+  const extras = { ...nestedExtras, ...topLevelExtras };
   return Object.freeze({
     ...DEFAULT_SEQUENCE_PLANNING_CONFIG,
-    ...Object.fromEntries(Object.entries(input || {}).filter(([key]) => known.has(key))),
-    rolePriority: Object.freeze(Array.isArray(input?.rolePriority) ? [...input.rolePriority] : []),
+    ...Object.fromEntries(Object.entries(source).filter(([key]) => known.has(key))),
+    rolePriority: Object.freeze(Array.isArray(source.rolePriority) ? [...source.rolePriority] : []),
     extras: Object.freeze(extras),
   });
 }
-export function validateSequencePlanningConfig(config) {
-  const errors = [];
+export function validateSequencePlanningConfig(input = {}) {
+  const config = resolveSequencePlanningConfig(input);
+  const errors = [...validateHatchOverlapIntegrationConfig(input).errors];
+  if (Object.hasOwn(input || {}, 'extras') && !plainObject(input.extras)) {
+    errors.push({
+      code: 'INVALID_SEQUENCE_PLANNING_EXTRAS',
+      path: 'extras',
+      message: 'extras must be an object when provided.',
+    });
+  }
   if (!SEQUENCE_PLANNING_ALGORITHMS.includes(config?.algorithm)) errors.push({ code: 'INVALID_SEQUENCE_ALGORITHM', path: 'algorithm', message: 'Algorithm must be auto, exact, or beam.' });
   ['exactSearchObjectLimit', 'beamWidth', 'maximumExpandedStates', 'maximumEntryCandidatesPerObject', 'maximumExitCandidatesPerObject'].forEach(field => {
     if (!Number.isInteger(config?.[field]) || config[field] <= 0) errors.push({ code: 'INVALID_SEQUENCE_LIMIT', path: field, message: `${field} must be a positive integer.` });
@@ -54,7 +70,7 @@ export function validateSequencePlanningConfig(config) {
   if (config?.generatePhysicalStitches || config?.generatePhysicalUnderlay || config?.generateCanonicalCommands || config?.machineAdaptation || config?.encoding) {
     errors.push({ code: 'PHASE_8_PHYSICAL_OUTPUT_FORBIDDEN', path: 'config', message: 'Phase 8 cannot generate physical or encoded output.' });
   }
-  return { valid: errors.length === 0, errors, warnings: [] };
+  return { valid: errors.length === 0, errors, warnings: [], config };
 }
 
 export function resolveSequenceAlgorithm(config, objectCount) {

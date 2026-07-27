@@ -1,5 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
+  COLOR_GROUP_HEURISTIC_RULE_ID,
+  CONTOUR_LAST_RULE_ID,
   DEFAULT_HATCH_EVIDENCE_PROFILE,
   DEFAULT_HATCH_EVIDENCE_RULE_FLAGS,
   HATCH_EVIDENCE_CONTEXT_FIELDS,
@@ -7,6 +9,7 @@ import {
   HATCH_EVIDENCE_RULE_IDS,
   HATCH_EVIDENCE_RULES,
   HATCH_MASTER_EVIDENCE_SOURCE,
+  HATCH_OVERLAP_RULE_IDS,
   getHatchEvidenceRules,
   resolveHatchEvidenceIntegrationConfig,
   validateHatchEvidenceIntegrationConfig,
@@ -92,8 +95,19 @@ describe('Hatch A-F evidence registry', () => {
     });
   });
 
-  it('keeps C-F and lettering inactive', () => {
-    expect(HATCH_EVIDENCE_RULES.filter(rule => ['C_Solapes', 'D_Técnicas', 'E_Telas', 'F_Escalado'].includes(rule.phase)).every(rule => rule.activatedInProfiles.length === 0)).toBe(true);
+  it('keeps only C1 and C2 partially integrated in C while D-F and lettering remain inactive', () => {
+    const cRules = HATCH_EVIDENCE_RULES.filter(rule => rule.phase === 'C_Solapes');
+    expect(HATCH_OVERLAP_RULE_IDS).toEqual([
+      CONTOUR_LAST_RULE_ID,
+      COLOR_GROUP_HEURISTIC_RULE_ID,
+    ]);
+    HATCH_OVERLAP_RULE_IDS.forEach(ruleId => expect(
+      cRules.find(rule => rule.id === ruleId).activatedInProfiles,
+    ).toEqual(['hatch-c-experimental']));
+    expect(cRules.filter(rule => !HATCH_OVERLAP_RULE_IDS.includes(rule.id))
+      .every(rule => rule.activatedInProfiles.length === 0)).toBe(true);
+    expect(HATCH_EVIDENCE_RULES.filter(rule => ['D_Técnicas', 'E_Telas', 'F_Escalado'].includes(rule.phase))
+      .every(rule => rule.activatedInProfiles.length === 0)).toBe(true);
     expect(HATCH_EVIDENCE_REGISTRY.letteringIncluded).toBe(false);
     expect(HATCH_EVIDENCE_REGISTRY.reviewedClosedOverlapAudit).toMatchObject({ phaseRemainsClosed: true, technicalDataModified: false });
   });

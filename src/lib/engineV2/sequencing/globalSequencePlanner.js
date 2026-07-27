@@ -1,6 +1,11 @@
 import { validateEmbroideryObjectV2, validateThreadDefinitionV2 } from '../modelValidation.js';
 import { mergeFlatErrors, propagateFlatErrors } from '../errorPropagation.js';
 import {
+  COLOR_GROUP_HEURISTIC_RULE_ID,
+  evaluateColorGroupHeuristicGuard,
+} from '../rules/hatchEvidence/colorGroupHeuristic.js';
+import { hatchOverlapRuleEnabled } from '../rules/hatchEvidence/overlapProfiles.js';
+import {
   validateObjectTechnicalSpecificationV2,
   validateTechnicalEmbroideryPlan,
 } from '../technical/technicalPlanningValidation.js';
@@ -179,7 +184,13 @@ function summaryFor({ objects, dispositions, selections, steps, blocks, transiti
   };
 }
 
-function blockedSequencePlan({ objects, config, errors, inputMutationsDetected }) {
+function blockedSequencePlan({
+  objects,
+  config,
+  errors,
+  inputMutationsDetected,
+  colorGroupGuard = null,
+}) {
   const summary = summaryFor({
     objects,
     dispositions: [],
@@ -212,14 +223,24 @@ function blockedSequencePlan({ objects, config, errors, inputMutationsDetected }
       threadBlocksCreated: false,
       finalEntryExitPairsSelected: false,
       canonicalCommandsGenerated: false,
+      ...(colorGroupGuard
+        ? { colorGroupHeuristicEvaluatorInvoked: true }
+        : {}),
     },
+    ...(colorGroupGuard ? {
+      colorGroupHeuristicContract: colorGroupGuard.contract,
+      colorGroupHeuristicEvaluation: colorGroupGuard.evaluation,
+      colorGroupHeuristicIntegrationMarker: colorGroupGuard.marker,
+      colorGroupHeuristicTrace: colorGroupGuard.trace,
+    } : {}),
   });
 }
 
 export function buildGlobalSequencePlan({ regions = [], threadedObjectMaterialization, technicalPlan, config: rawConfig = {} }) {
   const before = snapshot({ regions, threadedObjectMaterialization, technicalPlan, rawConfig });
   const objects = threadedObjectMaterialization?.objects || []; const threads = threadedObjectMaterialization?.threads || [];
-  const config = resolveSequencePlanningConfig(rawConfig); const configValidation = validateSequencePlanningConfig(config);
+  const config = resolveSequencePlanningConfig(rawConfig); const configValidation = validateSequencePlanningConfig(rawConfig);
+  const colorGroupEnabled = hatchOverlapRuleEnabled(config, COLOR_GROUP_HEURISTIC_RULE_ID);
   const errors = [...configValidation.errors]; const warnings = [];
   objects.forEach((object, index) => errors.push(...validateEmbroideryObjectV2(object).errors.map(item => ({ ...item, path: `objects[${index}].${item.path}` }))));
   threads.forEach((thread, index) => errors.push(...validateThreadDefinitionV2(thread).errors.map(item => ({ ...item, path: `threads[${index}].${item.path}` }))));
@@ -254,11 +275,48 @@ export function buildGlobalSequencePlan({ regions = [], threadedObjectMaterializ
           'Global sequencing requires an explicitly valid threaded object materialization.',
         ),
     });
+    const blockedErrors = mergeFlatErrors(propagated);
+    const colorGroupGuard = colorGroupEnabled
+      ? evaluateColorGroupHeuristicGuard({
+        objects,
+        scheduledObjectIds: [],
+        executionSteps: [],
+        searchMetadata: null,
+        config,
+        blockingErrors: blockedErrors,
+      })
+      : null;
     return blockedSequencePlan({
       objects,
       config,
-      errors: propagated,
+      errors: blockedErrors,
       inputMutationsDetected: before !== snapshot({ regions, threadedObjectMaterialization, technicalPlan, rawConfig }),
+      colorGroupGuard,
+    });
+  }
+  if (errors.length) {
+    const blockedErrors = mergeFlatErrors(errors);
+    const colorGroupGuard = colorGroupEnabled
+      ? evaluateColorGroupHeuristicGuard({
+        objects,
+        scheduledObjectIds: [],
+        executionSteps: [],
+        searchMetadata: null,
+        config,
+        blockingErrors: blockedErrors,
+      })
+      : null;
+    return blockedSequencePlan({
+      objects,
+      config,
+      errors: blockedErrors,
+      inputMutationsDetected: before !== snapshot({
+        regions,
+        threadedObjectMaterialization,
+        technicalPlan,
+        rawConfig,
+      }),
+      colorGroupGuard,
     });
   }
   let dispositions = applyDependencyBlocking(initialDispositions(objects, technicalPlan, config), objects, config);
@@ -308,6 +366,30 @@ export function buildGlobalSequencePlan({ regions = [], threadedObjectMaterializ
       source: { planner: 'engineV2-global-sequence', estimatedOnly: true },
     });
   });
+  const colorGroupGuard = colorGroupEnabled
+    ? evaluateColorGroupHeuristicGuard({
+      objects,
+      scheduledObjectIds: [...scheduledIds],
+      executionSteps: steps,
+      searchMetadata: scheduler.searchMetadata,
+      config,
+    })
+    : null;
+  if (colorGroupGuard?.errors.length) {
+    const guardErrors = mergeFlatErrors([...errors, ...colorGroupGuard.errors]);
+    return blockedSequencePlan({
+      objects,
+      config,
+      errors: guardErrors,
+      inputMutationsDetected: before !== snapshot({
+        regions,
+        threadedObjectMaterialization,
+        technicalPlan,
+        rawConfig,
+      }),
+      colorGroupGuard,
+    });
+  }
   const baseline = buildBaseline(scheduledObjects, specificationMap, config);
   const inputMutationsDetected = before !== snapshot({ regions, threadedObjectMaterialization, technicalPlan, rawConfig });
   const summary = summaryFor({ objects, dispositions, selections, steps, blocks: blockResult.threadBlocks, transitions, searchMetadata: scheduler.searchMetadata, baseline, inputMutationsDetected });
@@ -331,6 +413,9 @@ export function buildGlobalSequencePlan({ regions = [], threadedObjectMaterializ
       threadFingerprints: Object.fromEntries(threads.map(thread => [thread.id, fingerprint(thread)])),
       technicalSpecificationFingerprints: Object.fromEntries((technicalPlan?.specifications || []).map(specification => [specification.id, fingerprint(specification)])),
     },
+    ...(colorGroupGuard
+      ? { colorGroupHeuristicEvaluatorInvoked: true }
+      : {}),
   };
   const draft = {
     version: '2-global-sequence-plan', dispositions, selectedEntryExitPairs: selections, executionSteps: steps,
@@ -341,6 +426,12 @@ export function buildGlobalSequencePlan({ regions = [], threadedObjectMaterializ
     byThreadBlockId: Object.fromEntries(blockResult.threadBlocks.map(item => [item.id, item])),
     searchMetadata: scheduler.searchMetadata, valid: errors.length === 0 && scheduler.complete,
     errors, warnings, summary, config, metadata,
+    ...(colorGroupGuard ? {
+      colorGroupHeuristicContract: colorGroupGuard.contract,
+      colorGroupHeuristicEvaluation: colorGroupGuard.evaluation,
+      colorGroupHeuristicIntegrationMarker: colorGroupGuard.marker,
+      colorGroupHeuristicTrace: colorGroupGuard.trace,
+    } : {}),
   };
   const validation = validateGlobalSequencePlan(draft, threadedObjectMaterialization, technicalPlan);
   return createGlobalSequencePlanV2({ ...draft, valid: draft.valid && validation.valid, errors: [...errors, ...validation.errors], warnings: [...warnings, ...validation.warnings] });

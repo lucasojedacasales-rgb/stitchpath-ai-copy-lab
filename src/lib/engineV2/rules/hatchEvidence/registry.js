@@ -58,12 +58,12 @@ export function validateHatchEvidenceRegistry(registry = HATCH_EVIDENCE_REGISTRY
   if (new Set(ids).size !== ids.length) errors.push({ code: 'HATCH_EVIDENCE_DUPLICATE_RULE_ID' });
   rules.forEach((rule, index) => errors.push(...validateHatchEvidenceRule(rule).errors.map(error => ({ ...error, path: `rules[${index}].${error.field}` }))));
   if (rules.some(rule => !HATCH_EVIDENCE_PHASES.includes(rule.phase))) errors.push({ code: 'HATCH_EVIDENCE_UNKNOWN_PHASE' });
-  const contourLast = rules.find(rule => rule.id === 'CONTOUR-LAST-001');
-  const unauthorizedC = rules.filter(rule => rule.phase === 'C_Solapes' && rule.id !== 'CONTOUR-LAST-001')
+  const integratedC = HATCH_OVERLAP_RULE_IDS.map(ruleId => rules.find(rule => rule.id === ruleId));
+  const unauthorizedC = rules.filter(rule => rule.phase === 'C_Solapes' && !HATCH_OVERLAP_RULE_IDS.includes(rule.id))
     .some(rule => rule.activatedInProfiles.length > 0);
   if (unauthorizedC
-    || !contourLast
-    || JSON.stringify(contourLast.activatedInProfiles) !== JSON.stringify(['hatch-c-experimental'])) {
+    || integratedC.some(rule => !rule
+      || JSON.stringify(rule.activatedInProfiles) !== JSON.stringify(['hatch-c-experimental']))) {
     errors.push({ code: 'HATCH_EVIDENCE_UNAUTHORIZED_C_ACTIVATION' });
   }
   if (rules.some(rule => ['D_Técnicas', 'E_Telas', 'F_Escalado'].includes(rule.phase) && rule.activatedInProfiles.length)) errors.push({ code: 'HATCH_EVIDENCE_UNAUTHORIZED_PHASE_ACTIVATION' });

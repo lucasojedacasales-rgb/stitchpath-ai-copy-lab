@@ -1,6 +1,8 @@
 import { validateThreadBlockV2 } from '../modelValidation.js';
+import { validateColorGroupHeuristicPlanState } from '../rules/hatchEvidence/colorGroupHeuristic.js';
 import { REPEATED_THREAD_REASONS, executionStepId, selectedEntryExitIdForObject, sequenceDispositionIdForObject, transitionId } from './sequencePlanningModel.js';
 import { sequencePointDistance } from './candidatePairSelector.js';
+import { validateSequencePlanningConfig } from './sequencePlanningConfig.js';
 
 const issue = (code, path, message) => ({ code, path, message });
 const finitePoint = point => point && Number.isFinite(point.x) && Number.isFinite(point.y);
@@ -53,8 +55,8 @@ export function validateSelectedEntryExitPairV2(selection, object, specification
   const exit = specification?.exitCandidates?.find(candidate => candidate.id === selection?.exitCandidateId);
   if (!entry) errors.push(issue('SELECTED_ENTRY_MISSING', 'entryCandidateId', 'Selected entry candidate does not exist.'));
   if (!exit) errors.push(issue('SELECTED_EXIT_MISSING', 'exitCandidateId', 'Selected exit candidate does not exist.'));
-  if (entry && (entry.objectId !== object.id || entry.kind !== 'entry' || !entry.valid)) errors.push(issue('INVALID_SELECTED_ENTRY_CANDIDATE', 'entryCandidateId', 'Selected entry candidate is invalid.'));
-  if (exit && (exit.objectId !== object.id || exit.kind !== 'exit' || !exit.valid)) errors.push(issue('INVALID_SELECTED_EXIT_CANDIDATE', 'exitCandidateId', 'Selected exit candidate is invalid.'));
+  if (entry && (!object || entry.objectId !== object.id || entry.kind !== 'entry' || !entry.valid)) errors.push(issue('INVALID_SELECTED_ENTRY_CANDIDATE', 'entryCandidateId', 'Selected entry candidate is invalid.'));
+  if (exit && (!object || exit.objectId !== object.id || exit.kind !== 'exit' || !exit.valid)) errors.push(issue('INVALID_SELECTED_EXIT_CANDIDATE', 'exitCandidateId', 'Selected exit candidate is invalid.'));
   if (!finitePoint(selection?.entryPoint) || !finitePoint(selection?.exitPoint)) errors.push(issue('NONFINITE_SELECTED_POINT', 'points', 'Selected points must be finite.'));
   if (entry && !same(entry.point, selection.entryPoint)) errors.push(issue('SELECTED_ENTRY_POINT_CHANGED', 'entryPoint', 'Selected entry point changed from Phase 7.'));
   if (exit && !same(exit.point, selection.exitPoint)) errors.push(issue('SELECTED_EXIT_POINT_CHANGED', 'exitPoint', 'Selected exit point changed from Phase 7.'));
@@ -98,6 +100,7 @@ export function validateGlobalSequencePlan(plan, threadedObjectMaterialization, 
   const threadIds = new Set(threads.map(thread => thread.id));
   const dispositions = plan?.dispositions || []; const steps = plan?.executionSteps || [];
   const selections = plan?.selectedEntryExitPairs || []; const blocks = plan?.threadBlocks || []; const transitions = plan?.transitions || [];
+  errors.push(...validateSequencePlanningConfig(plan?.config || {}).errors);
 
   duplicateValues(dispositions.map(item => item.id)).forEach(id => errors.push(issue('DUPLICATE_SEQUENCE_DISPOSITION_ID', 'dispositions', `Duplicate disposition ID "${id}".`)));
   duplicateValues(dispositions.map(item => item.objectId)).forEach(id => errors.push(issue('DUPLICATE_OBJECT_DISPOSITION', 'dispositions', `Object "${id}" has multiple dispositions.`)));
@@ -167,6 +170,11 @@ export function validateGlobalSequencePlan(plan, threadedObjectMaterialization, 
   objects.forEach(object => { if (contracts?.objectFingerprints?.[object.id] && contracts.objectFingerprints[object.id] !== fingerprint(object)) errors.push(issue('SEQUENCE_OBJECT_MUTATION', `objects.${object.id}`, 'A source final object changed after sequence planning.')); });
   threads.forEach(thread => { if (contracts?.threadFingerprints?.[thread.id] && contracts.threadFingerprints[thread.id] !== fingerprint(thread)) errors.push(issue('SEQUENCE_THREAD_DEFINITION_MUTATION', `threads.${thread.id}`, 'A source thread definition changed after sequence planning.')); });
   specifications.forEach(specification => { if (contracts?.technicalSpecificationFingerprints?.[specification.id] && contracts.technicalSpecificationFingerprints[specification.id] !== fingerprint(specification)) errors.push(issue('SEQUENCE_TECHNICAL_SPECIFICATION_MUTATION', `specifications.${specification.id}`, 'A source technical specification changed after sequence planning.')); });
+  errors.push(...validateColorGroupHeuristicPlanState({
+    plan,
+    objects,
+    config: plan?.config || {},
+  }).errors);
   for (const field of ['physicalStitchesGenerated', 'physicalUnderlayGenerated', 'jumpCommandsGenerated', 'trimCommandsGenerated', 'colorChangeCommandsGenerated', 'canonicalCommandsGenerated', 'machineAdaptationAdded', 'encodingAdded']) {
     if (plan?.metadata?.[field] === true) errors.push(issue('PHASE_8_OUTPUT_FLAG_FORBIDDEN', `metadata.${field}`, `${field} must remain false in Phase 8.`));
   }

@@ -140,5 +140,17 @@ export function createGlobalSequencePlanV2(input = {}) {
     summary: clone(input.summary ?? {}),
     config: clone(input.config ?? {}),
     metadata: clone(input.metadata ?? {}),
+    ...(Object.hasOwn(input, 'colorGroupHeuristicContract')
+      ? { colorGroupHeuristicContract: clone(input.colorGroupHeuristicContract) }
+      : {}),
+    ...(Object.hasOwn(input, 'colorGroupHeuristicEvaluation')
+      ? { colorGroupHeuristicEvaluation: clone(input.colorGroupHeuristicEvaluation) }
+      : {}),
+    ...(Object.hasOwn(input, 'colorGroupHeuristicIntegrationMarker')
+      ? { colorGroupHeuristicIntegrationMarker: clone(input.colorGroupHeuristicIntegrationMarker) }
+      : {}),
+    ...(Object.hasOwn(input, 'colorGroupHeuristicTrace')
+      ? { colorGroupHeuristicTrace: clone(input.colorGroupHeuristicTrace) }
+      : {}),
   });
 }

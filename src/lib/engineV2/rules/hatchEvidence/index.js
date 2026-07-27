@@ -35,6 +35,17 @@ export {
   evaluateContourLastProposalGuard,
 } from './contourLast.js';
 export {
+  COLOR_GROUP_HEURISTIC_CONTRACT_VERSION,
+  COLOR_GROUP_HEURISTIC_EVALUATION_VERSION,
+  COLOR_GROUP_HEURISTIC_MARKER_VERSION,
+  COLOR_GROUP_HEURISTIC_RULE_ID,
+  COLOR_GROUP_HEURISTIC_TRACE_VERSION,
+  createColorGroupHeuristicIntegrationMarker,
+  deriveCanonicalColorGroupHeuristicContract,
+  evaluateColorGroupHeuristicGuard,
+  validateColorGroupHeuristicPlanState,
+} from './colorGroupHeuristic.js';
+export {
   DEFAULT_HATCH_OVERLAP_PROFILE,
   DEFAULT_HATCH_OVERLAP_RULE_FLAGS,
   HATCH_OVERLAP_CONFIG_FIELDS,
