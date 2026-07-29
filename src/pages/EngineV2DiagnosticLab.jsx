@@ -14,6 +14,7 @@ import PhysicalHistoryPanel from '@/components/diagnostic/PhysicalHistoryPanel';
 import DiagnosticExportPanel from '@/components/diagnostic/DiagnosticExportPanel';
 import EngineV2AuditPanel from '@/components/diagnostic/EngineV2AuditPanel';
 import { experimentalEngineV2Base44Bridge } from '@/lib/engineV2Bridge/featureFlags';
+import { runControlledEngineV2Audit } from '@/lib/engineV2Bridge/runControlledEngineV2Audit';
 
 // Session cache keyed by SHA-256 (never persisted to DB).
 const sessionCache = new Map();
@@ -27,6 +28,8 @@ export default function EngineV2DiagnosticLab() {
   const [analysis, setAnalysis] = useState(null);
   const [loading, setLoading] = useState(false);
   const [loadError, setLoadError] = useState(null);
+  const [engineV2AuditResult, setEngineV2AuditResult] = useState(null);
+  const [engineV2AuditError, setEngineV2AuditError] = useState(null);
   const [viewOpts, setViewOpts] = useState({
     showStitches: true, showJumps: true, showEnvelope: true, showBlocks: true, showStartEnd: true,
   });
@@ -39,8 +42,21 @@ export default function EngineV2DiagnosticLab() {
 
   const workerRef = useRef(null);
   const jobIdRef = useRef(0);
+  const engineV2AuditExecutionRef = useRef(false);
 
   useEffect(() => () => workerRef.current?.terminate(), []);
+
+  useEffect(() => {
+    if (experimentalEngineV2Base44Bridge !== true || !isAdmin) return;
+    const outcome = runControlledEngineV2Audit({
+      enabled: experimentalEngineV2Base44Bridge,
+      authorized: isAdmin,
+      executionGate: engineV2AuditExecutionRef,
+    });
+    if (!outcome.executed) return;
+    setEngineV2AuditResult(outcome.result);
+    setEngineV2AuditError(outcome.error);
+  }, [isAdmin]);
 
   const inspectorEntries = useMemo(() => {
     if (!analysis?.geometry) return [];
@@ -171,6 +187,8 @@ export default function EngineV2DiagnosticLab() {
         {tab === 'inspector' && (
           <EngineV2AuditPanel
             enabled={experimentalEngineV2Base44Bridge}
+            result={engineV2AuditResult}
+            error={engineV2AuditError}
           />
         )}
 
