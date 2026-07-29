@@ -12,6 +12,8 @@ import StitchCanvas from '@/components/diagnostic/StitchCanvas';
 import ComparePanel from '@/components/diagnostic/ComparePanel';
 import PhysicalHistoryPanel from '@/components/diagnostic/PhysicalHistoryPanel';
 import DiagnosticExportPanel from '@/components/diagnostic/DiagnosticExportPanel';
+import EngineV2AuditPanel from '@/components/diagnostic/EngineV2AuditPanel';
+import { experimentalEngineV2Base44Bridge } from '@/lib/engineV2Bridge/featureFlags';
 
 // Session cache keyed by SHA-256 (never persisted to DB).
 const sessionCache = new Map();
@@ -164,6 +166,12 @@ export default function EngineV2DiagnosticLab() {
           <div className="rounded-lg border border-red-500/40 bg-red-900/20 p-3 text-[11px] text-red-300">
             {loadError}
           </div>
+        )}
+
+        {tab === 'inspector' && (
+          <EngineV2AuditPanel
+            enabled={experimentalEngineV2Base44Bridge}
+          />
         )}
 
         {tab === 'inspector' && (
