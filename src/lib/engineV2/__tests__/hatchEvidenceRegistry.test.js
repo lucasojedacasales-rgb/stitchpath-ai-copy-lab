@@ -6,6 +6,7 @@ import {
   DEFAULT_HATCH_EVIDENCE_PROFILE,
   DEFAULT_HATCH_EVIDENCE_RULE_FLAGS,
   HATCH_EVIDENCE_CONTEXT_FIELDS,
+  HATCH_EVIDENCE_CAPABILITY_CLAIMS,
   HATCH_EVIDENCE_PHASE_ALIASES,
   HATCH_EVIDENCE_PHASES,
   HATCH_EVIDENCE_REGISTRY,
@@ -373,6 +374,22 @@ describe('Hatch A-G evidence registry', () => {
     expect(HATCH_EVIDENCE_REGISTRY.partialIntegrations[0].defaultRuleFlags)
       .toEqual(Object.fromEntries(HATCH_OVERLAP_RULE_IDS.map(ruleId => [ruleId, false])));
     expect(HATCH_G_LETTERING_EVIDENCE.activatedInProfiles).toEqual([]);
+  });
+
+  it('integrates the immutable capability claims without changing rules or G separation', () => {
+    expect(HATCH_EVIDENCE_REGISTRY.capabilityClaims).toBe(HATCH_EVIDENCE_CAPABILITY_CLAIMS);
+    expect(HATCH_EVIDENCE_REGISTRY.capabilityClaims).toMatchObject({
+      version: 'engine-v2-hatch-capability-claims-r1',
+      productionIntegration: false,
+    });
+    expect(HATCH_EVIDENCE_REGISTRY.capabilityClaims.rulesAF.map(claim => claim.ruleId))
+      .toEqual(HATCH_EVIDENCE_RULES.map(rule => rule.id));
+    expect(HATCH_EVIDENCE_REGISTRY.capabilityClaims.letteringG).toHaveLength(12);
+    expect(HATCH_EVIDENCE_REGISTRY.capabilityClaims.letteringG
+      .every(claim => claim.phase === 'G_Lettering'
+        && claim.activatedInProfiles.length === 0)).toBe(true);
+    expect(Object.keys(HATCH_EVIDENCE_REGISTRY.byId))
+      .not.toContain(HATCH_EVIDENCE_REGISTRY.capabilityClaims.letteringG[0].claimId);
   });
 
   it.each([

@@ -2,6 +2,10 @@ import { HATCH_FABRIC_EVIDENCE_RULES } from './fabrics.js';
 import { HATCH_HOLE_EVIDENCE_RULES } from './holes.js';
 import { HATCH_G_LETTERING_EVIDENCE, validateHatchGLetteringEvidence } from './lettering.js';
 import {
+  HATCH_EVIDENCE_CAPABILITY_CLAIMS,
+  validateHatchEvidenceCapabilityClaims,
+} from './capabilityClaims.js';
+import {
   HATCH_MASTER_A_F_EVIDENCE_SOURCE,
   HATCH_MASTER_A_G_EVIDENCE_SOURCE,
   validateHatchEvidenceRule,
@@ -80,6 +84,7 @@ export const HATCH_EVIDENCE_REGISTRY = Object.freeze({
   reviewedClosedOverlapAudit: HATCH_OVERLAP_REVIEW_AUDIT,
   letteringEvidence: HATCH_G_LETTERING_EVIDENCE,
   letteringIncluded: true,
+  capabilityClaims: HATCH_EVIDENCE_CAPABILITY_CLAIMS,
   productionIntegration: false,
 });
 
@@ -141,6 +146,10 @@ export function validateHatchEvidenceRegistry(registry = HATCH_EVIDENCE_REGISTRY
     errors.push({ code: 'HATCH_EVIDENCE_G_INTEGRATION_FORBIDDEN' });
   }
   errors.push(...validateHatchGLetteringEvidence(registry?.letteringEvidence).errors);
+  errors.push(...validateHatchEvidenceCapabilityClaims(registry?.capabilityClaims, {
+    rules,
+    byId: registry?.byId,
+  }).errors);
   if (registry?.letteringIncluded !== true) errors.push({ code: 'HATCH_EVIDENCE_G_MUST_BE_INCLUDED' });
   if (registry?.productionIntegration !== false) errors.push({ code: 'HATCH_EVIDENCE_PRODUCTION_INTEGRATION_FORBIDDEN' });
   return { valid: errors.length === 0, errors, warnings: [] };

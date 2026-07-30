@@ -10,6 +10,16 @@ export {
   validateHatchGLetteringEvidence,
 } from './lettering.js';
 export {
+  HATCH_A_F_CAPABILITY_CLAIMS,
+  HATCH_CAPABILITY_CLAIM_STATUSES,
+  HATCH_EVIDENCE_CAPABILITY_CLAIMS,
+  HATCH_G_LETTERING_CAPABILITY_CLAIMS,
+  getHatchEvidenceCapabilityClaim,
+  getHatchEvidenceCapabilityClaimsByPhase,
+  summarizeHatchEvidenceCapabilityClaims,
+  validateHatchEvidenceCapabilityClaims,
+} from './capabilityClaims.js';
+export {
   DEFAULT_HATCH_EVIDENCE_PROFILE,
   DEFAULT_HATCH_EVIDENCE_RULE_FLAGS,
   HATCH_EVIDENCE_CONTEXT_FIELDS,
