@@ -1,8 +1,14 @@
 export {
+  HATCH_MASTER_A_F_EVIDENCE_SOURCE,
+  HATCH_MASTER_A_G_EVIDENCE_SOURCE,
   HATCH_MASTER_EVIDENCE_SOURCE,
   defineHatchEvidenceRules,
   validateHatchEvidenceRule,
 } from './model.js';
+export {
+  HATCH_G_LETTERING_EVIDENCE,
+  validateHatchGLetteringEvidence,
+} from './lettering.js';
 export {
   DEFAULT_HATCH_EVIDENCE_PROFILE,
   DEFAULT_HATCH_EVIDENCE_RULE_FLAGS,
@@ -72,9 +78,11 @@ export { HATCH_TECHNIQUE_EVIDENCE_RULES } from './techniques.js';
 export { HATCH_FABRIC_EVIDENCE_RULES } from './fabrics.js';
 export { HATCH_SCALING_EVIDENCE_RULES } from './scaling.js';
 export {
+  HATCH_EVIDENCE_PHASE_ALIASES,
   HATCH_EVIDENCE_PHASES,
   HATCH_EVIDENCE_REGISTRY,
   HATCH_EVIDENCE_RULES,
   getHatchEvidenceRules,
+  resolveHatchEvidencePhaseAlias,
   validateHatchEvidenceRegistry,
 } from './registry.js';

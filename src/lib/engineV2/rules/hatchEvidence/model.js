@@ -1,9 +1,10 @@
 /**
- * @typedef {'A_Anchuras'|'B_Huecos'|'C_Solapes'|'D_Técnicas'|'E_Telas'|'F_Escalado'} HatchEvidencePhase
+ * @typedef {'A_Anchuras'|'B_Huecos'|'C_Solapes'|'D_Técnicas'|'E_Telas'|'F_Escalado'} HatchEvidenceRulePhase
+ * @typedef {HatchEvidenceRulePhase|'G_Lettering'} HatchEvidenceRegistryPhase
  * @typedef {number|'high'|'medium'|'low'|null} HatchEvidenceConfidence
  * @typedef {object} HatchEvidenceRule
  * @property {string} id
- * @property {HatchEvidencePhase} phase
+ * @property {HatchEvidenceRulePhase} phase
  * @property {object} source
  * @property {unknown} condition
  * @property {unknown} candidateAction
@@ -14,12 +15,24 @@
  * @property {readonly string[]} activatedInProfiles
  */
 
-export const HATCH_MASTER_EVIDENCE_SOURCE = Object.freeze({
+export const HATCH_MASTER_A_F_EVIDENCE_SOURCE = Object.freeze({
   packageName: 'PAQUETE_MAESTRO_STITCHPATH_HATCH_A_F.zip',
   packageSha256: 'd2ca1f36db18a6d48fe8d471f66d4cf1f96e2804ca65979d57752e97812bf8e3',
   packageByteLength: 320891578,
   capturedAt: '2026-07-24',
 });
+
+export const HATCH_MASTER_A_G_EVIDENCE_SOURCE = Object.freeze({
+  packageName: 'PAQUETE_MAESTRO_STITCHPATH_HATCH_A_G.zip',
+  packageSha256: '9cc0c06372ed371716d50915d26c5625f5e40ba0165ee52c38ecae51dff3b96f',
+  packageByteLength: 486734439,
+  updated: '2026-07-25',
+  productionIntegration: false,
+  base44OriginalModified: false,
+});
+
+// Backwards-compatible alias for the historical A-F rule provenance.
+export const HATCH_MASTER_EVIDENCE_SOURCE = HATCH_MASTER_A_F_EVIDENCE_SOURCE;
 
 function clone(value) {
   if (Array.isArray(value)) return value.map(clone);
