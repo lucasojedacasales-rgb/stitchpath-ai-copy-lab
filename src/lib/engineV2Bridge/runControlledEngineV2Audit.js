@@ -1,4 +1,4 @@
-import { createMinimalInternalPipelineFixture } from '../engineV2/fixtures/minimalInternalPipelineFixture.js';
+import { convertDiagnosticLabAuditInputToBridgeInput } from './diagnosticLabAuditInput.js';
 import { runExperimentalEngineV2Bridge } from './runExperimentalEngineV2Bridge.js';
 
 const omitted = reason => ({
@@ -32,23 +32,21 @@ export function runControlledEngineV2Audit({
   authorized = false,
   executionGate,
   executeBridge = runExperimentalEngineV2Bridge,
-  createFixture = createMinimalInternalPipelineFixture,
+  selectAuditInput,
 } = {}) {
   if (enabled !== true) return omitted('feature-disabled');
   if (authorized !== true) return omitted('unauthorized');
   if (!validExecutionGate(executionGate)) return omitted('invalid-execution-gate');
   if (executionGate.current === true) return omitted('already-executed');
+  if (typeof selectAuditInput !== 'function') return omitted('missing-audit-input-selector');
 
   executionGate.current = true;
 
   try {
-    const fixture = createFixture();
+    const auditInput = selectAuditInput();
+    const bridgeInput = convertDiagnosticLabAuditInputToBridgeInput(auditInput);
     const result = executeBridge({
-      regions: fixture.sourceRegions,
-      config: {
-        width_mm: fixture.planningConfig.designWidthMm,
-        height_mm: fixture.planningConfig.designHeightMm,
-      },
+      ...bridgeInput,
       enabled: true,
     });
     return {

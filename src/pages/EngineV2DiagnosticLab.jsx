@@ -13,11 +13,17 @@ import ComparePanel from '@/components/diagnostic/ComparePanel';
 import PhysicalHistoryPanel from '@/components/diagnostic/PhysicalHistoryPanel';
 import DiagnosticExportPanel from '@/components/diagnostic/DiagnosticExportPanel';
 import EngineV2AuditPanel from '@/components/diagnostic/EngineV2AuditPanel';
+import { createMinimalInternalPipelineFixture } from '@/lib/engineV2/fixtures/minimalInternalPipelineFixture';
+import { createDiagnosticLabAuditInputFromFixture } from '@/lib/engineV2Bridge/diagnosticLabAuditInput';
 import { experimentalEngineV2Base44Bridge } from '@/lib/engineV2Bridge/featureFlags';
 import { runControlledEngineV2Audit } from '@/lib/engineV2Bridge/runControlledEngineV2Audit';
 
 // Session cache keyed by SHA-256 (never persisted to DB).
 const sessionCache = new Map();
+const DIAGNOSTIC_MINIMAL_FIXTURE_PROVENANCE = Object.freeze({
+  kind: 'explicit-fixture',
+  id: 'minimal-internal-pipeline',
+});
 
 export default function EngineV2DiagnosticLab() {
   const { user } = useAuth();
@@ -47,11 +53,16 @@ export default function EngineV2DiagnosticLab() {
   useEffect(() => () => workerRef.current?.terminate(), []);
 
   useEffect(() => {
-    if (experimentalEngineV2Base44Bridge !== true || !isAdmin) return;
+    if (experimentalEngineV2Base44Bridge !== true) return;
+    if (!isAdmin) return;
     const outcome = runControlledEngineV2Audit({
       enabled: experimentalEngineV2Base44Bridge,
       authorized: isAdmin,
       executionGate: engineV2AuditExecutionRef,
+      selectAuditInput: () => createDiagnosticLabAuditInputFromFixture(
+        createMinimalInternalPipelineFixture(),
+        DIAGNOSTIC_MINIMAL_FIXTURE_PROVENANCE,
+      ),
     });
     if (!outcome.executed) return;
     setEngineV2AuditResult(outcome.result);
