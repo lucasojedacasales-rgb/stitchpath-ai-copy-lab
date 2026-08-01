@@ -8,6 +8,7 @@ import {
 import { runEngineV2InternalPipeline } from '../internalPipeline.js';
 import { compileCanonicalCommandStream } from '../commandCompilation/canonicalCommandCompiler.js';
 import { resolvePhysicalGenerationConfig } from '../stitchGeneration/physicalGenerationConfig.js';
+import { generatePhysicalUnderlay } from '../stitchGeneration/physicalUnderlayGenerator.js';
 import {
   analyzeSatinCrossSections,
   generateSatinPhysicalPath,
@@ -67,7 +68,7 @@ function findError(errors, code) {
   return errors.find(error => error.code === code);
 }
 
-describe('P8 physical generator failure propagation', () => {
+describe('P8-F1A physical generator failure propagation', () => {
   it('keeps a nominal satin width valid and produces a physical path', () => {
     const config = resolvePhysicalGenerationConfig();
     const result = generateSatinPhysicalPath({
@@ -145,8 +146,32 @@ describe('P8 physical generator failure propagation', () => {
     const disposition = physicalPlan.dispositions.find(
       entry => entry.objectId === FAILED_OBJECT_ID,
     );
+    const failedObject = result.stages.threadedMaterialization.objects.find(
+      object => object.id === FAILED_OBJECT_ID,
+    );
+    const failedSpecification = result.stages.technicalPlanning.specifications.find(
+      specification => specification.objectId === FAILED_OBJECT_ID,
+    );
+    const failedEntryExit = result.stages.sequencePlanning.selectedEntryExitPairs.find(
+      selection => selection.objectId === FAILED_OBJECT_ID,
+    );
+    const topGeneration = generateSatinPhysicalPath({
+      object: failedObject,
+      technicalSpecification: failedSpecification,
+      selectedEntryExit: failedEntryExit,
+      config: physicalPlan.config,
+    });
+    const topCause = findError(topGeneration.errors, 'SATIN_WIDTH_ABOVE_MAXIMUM');
+    const consolidatedCauses = physicalPlan.errors.filter(
+      error => error.code !== 'PHYSICAL_GENERATOR_FAILED',
+    );
 
     expect(physicalPlan.valid).toBe(false);
+    expect(physicalPlan.errors.filter(
+      error => error.code === 'SATIN_WIDTH_ABOVE_MAXIMUM',
+    )).toHaveLength(1);
+    expect(topCause).toBeDefined();
+    expect(rootCause).toMatchObject(topCause);
     expect(rootCause).toMatchObject({
       objectId: FAILED_OBJECT_ID,
       generator: 'satin',
@@ -171,6 +196,8 @@ describe('P8 physical generator failure propagation', () => {
       reasonCode: 'PHYSICAL_GENERATOR_FAILED',
     });
     expect(disposition.evidence).toContainEqual(rootCause);
+    expect(disposition.evidence).toEqual(consolidatedCauses);
+    expect(wrapper.evidence).toEqual(consolidatedCauses);
   });
 
   it('stops at physicalGeneration without replacing the cause with path missing', () => {
@@ -322,5 +349,49 @@ describe('P8 physical generator failure propagation', () => {
       boundaryToleranceMm: expect.any(Number),
       offendingSectionCount: expect.any(Number),
     });
+
+    const underlayOnlyInput = createPhysicalFailureFixture();
+    underlayOnlyInput.physicalConfig = {
+      ...(underlayOnlyInput.physicalConfig || {}),
+      includeTopStitches: false,
+    };
+    const underlayOnly = runEngineV2InternalPipeline(underlayOnlyInput);
+    const underlayOnlyPlan = underlayOnly.stages.physicalGeneration;
+    const underlayOnlyObject = underlayOnly.stages.threadedMaterialization.objects.find(
+      object => object.id === FAILED_OBJECT_ID,
+    );
+    const underlayOnlySpecification =
+      underlayOnly.stages.technicalPlanning.specifications.find(
+        specification => specification.objectId === FAILED_OBJECT_ID,
+      );
+    const underlayOnlySelection =
+      underlayOnly.stages.sequencePlanning.selectedEntryExitPairs.find(
+        selection => selection.objectId === FAILED_OBJECT_ID,
+      );
+    const rawUnderlay = generatePhysicalUnderlay({
+      object: underlayOnlyObject,
+      technicalSpecification: underlayOnlySpecification,
+      selectedEntryExit: underlayOnlySelection,
+      config: underlayOnlyPlan.config,
+    });
+    const rawUnderlayWidthCauses = rawUnderlay.errors.filter(
+      error => error.code === 'SATIN_WIDTH_ABOVE_MAXIMUM',
+    );
+    const underlayRootCauses = underlayOnlyPlan.errors.filter(
+      error => error.code === 'SATIN_WIDTH_ABOVE_MAXIMUM',
+    );
+    const underlayWrapper = findError(
+      underlayOnlyPlan.errors,
+      'PHYSICAL_GENERATOR_FAILED',
+    );
+    const underlayDisposition = underlayOnlyPlan.dispositions.find(
+      entry => entry.objectId === FAILED_OBJECT_ID,
+    );
+
+    expect(rawUnderlayWidthCauses.length).toBeGreaterThan(1);
+    expect(underlayRootCauses).toHaveLength(1);
+    expect(underlayRootCauses[0]).toMatchObject(rawUnderlayWidthCauses[0]);
+    expect(underlayDisposition.evidence).toEqual([underlayRootCauses[0]]);
+    expect(underlayWrapper.evidence).toEqual([underlayRootCauses[0]]);
   });
 });

@@ -63,6 +63,7 @@ function generatorFailureWrapper(object, generationErrors) {
       causeCodes: [...new Set(generationErrors
         .map(error => error?.code)
         .filter(code => typeof code === 'string'))].sort(),
+      evidence: generationErrors,
     },
   );
 }
