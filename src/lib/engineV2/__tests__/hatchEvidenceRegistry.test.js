@@ -29,6 +29,13 @@ import {
   resolveObjectPlanningConfig,
   validateObjectPlanningConfig,
 } from '../planning/planningConfig.js';
+import {
+  HATCH_EVIDENCE_ACTIVATION_MODES,
+  HATCH_EVIDENCE_CONTROLLED_OPT_IN_MODE,
+  HATCH_EVIDENCE_CONTROLLED_OPT_IN_POLICY,
+  canonicalizeHatchEvidenceControlledFallbackReasonCodes,
+  resolveHatchEvidenceControlledOptInPolicy,
+} from '../rules/hatchEvidence/profiles.js';
 
 const phaseCounts = Object.freeze({
   A_Anchuras: 5,
@@ -174,6 +181,12 @@ function clone(value) {
   return JSON.parse(JSON.stringify(value));
 }
 
+function freezeDeep(value) {
+  if (!value || typeof value !== 'object' || Object.isFrozen(value)) return value;
+  Object.values(value).forEach(freezeDeep);
+  return Object.freeze(value);
+}
+
 function expectDeeplyFrozen(value) {
   if (!value || typeof value !== 'object') return;
   expect(Object.isFrozen(value)).toBe(true);
@@ -186,6 +199,80 @@ function activeConfig(ruleId, context) {
     hatchEvidenceRuleFlags: { [ruleId]: true },
     ...(context === undefined ? {} : { hatchEvidenceContext: context }),
   };
+}
+
+function controlledConfig(ruleIds = [], overrides = {}) {
+  return {
+    hatchEvidenceProfile: 'hatch-a-f-experimental',
+    hatchEvidenceActivationMode: 'controlled-opt-in',
+    hatchEvidenceRuleFlags: Object.fromEntries(ruleIds.map(ruleId => [ruleId, true])),
+    hatchEvidenceContext: {
+      fabricProfile: 'Pure Cotton',
+      referenceScaleCompatible: true,
+    },
+    ...overrides,
+  };
+}
+
+function registryWithControlledPolicy(controlledOptInPolicy) {
+  return Object.freeze({
+    ...HATCH_EVIDENCE_REGISTRY,
+    activeIntegration: Object.freeze({
+      ...HATCH_EVIDENCE_REGISTRY.activeIntegration,
+      controlledOptInPolicy,
+    }),
+  });
+}
+
+function controlledPolicyCopy(overrides = {}) {
+  return freezeDeep({
+    ...clone(HATCH_EVIDENCE_CONTROLLED_OPT_IN_POLICY),
+    ...overrides,
+  });
+}
+
+const CONTROLLED_POLICY_ARRAY_FIELDS = Object.freeze([
+  'operationalRuleIds',
+  'diagnosticRuleIds',
+  'mutuallyExclusiveOperationalRuleIds',
+]);
+
+function freezePolicyArrays(policy, mutableField = null) {
+  CONTROLLED_POLICY_ARRAY_FIELDS.forEach(field => {
+    if (field !== mutableField && Array.isArray(policy[field])) Object.freeze(policy[field]);
+  });
+  return policy;
+}
+
+function policyWithArray(field, value) {
+  const policy = clone(HATCH_EVIDENCE_CONTROLLED_OPT_IN_POLICY);
+  policy[field] = value;
+  freezePolicyArrays(policy);
+  return Object.freeze(policy);
+}
+
+function policyWithAccessor(field, descriptor) {
+  const policy = clone(HATCH_EVIDENCE_CONTROLLED_OPT_IN_POLICY);
+  delete policy[field];
+  freezePolicyArrays(policy);
+  Object.defineProperty(policy, field, {
+    enumerable: true,
+    configurable: true,
+    ...descriptor,
+  });
+  return Object.freeze(policy);
+}
+
+function expectControlledPolicyInvalid(policy) {
+  let result;
+  expect(() => {
+    result = validateHatchEvidenceRegistry(registryWithControlledPolicy(policy));
+  }).not.toThrow();
+  expect(result).toEqual({
+    valid: false,
+    errors: [{ code: 'HATCH_EVIDENCE_CONTROLLED_OPT_IN_POLICY_INVALID' }],
+    warnings: [],
+  });
 }
 
 describe('Hatch A-G evidence registry', () => {
@@ -615,5 +702,485 @@ describe('Hatch evidence feature profile', () => {
     });
     const codes = validateHatchEvidenceIntegrationConfig(disconnected, { technicalConfig: {} }).errors.map(error => error.code);
     expect(codes.filter(code => code === 'UNKNOWN_HATCH_EVIDENCE_CONTEXT_FIELD')).toHaveLength(2);
+  });
+});
+
+describe('R03 controlled Hatch A/B policy', () => {
+  const emptyPolicy = {
+    operationalRuleIds: [],
+    diagnosticRuleIds: [],
+    effectiveRuleIds: [],
+    fallbackToLegacy: false,
+    fallbackReasonCodes: [],
+  };
+
+  it('publishes one canonical deeply frozen internal policy without production integration', () => {
+    expect(HATCH_EVIDENCE_ACTIVATION_MODES).toEqual(['controlled-opt-in']);
+    expect(HATCH_EVIDENCE_CONTROLLED_OPT_IN_MODE).toBe('controlled-opt-in');
+    expect(HATCH_EVIDENCE_CONTROLLED_OPT_IN_POLICY).toEqual({
+      activationMode: 'controlled-opt-in',
+      operationalRuleIds: [SATIN_RANGE, HOLE_MIN_SIZE],
+      diagnosticRuleIds: [LOCAL_WIDTH, HOLE_PRESERVE],
+      mutuallyExclusiveOperationalRuleIds: [SATIN_RANGE, HOLE_MIN_SIZE],
+      defaultEnabled: false,
+      allOnAllowed: false,
+      productionIntegration: false,
+    });
+    expect(HATCH_EVIDENCE_REGISTRY.activeIntegration.controlledOptInPolicy)
+      .toBe(HATCH_EVIDENCE_CONTROLLED_OPT_IN_POLICY);
+    expect(HATCH_EVIDENCE_REGISTRY.productionIntegration).toBe(false);
+    expectDeeplyFrozen(HATCH_EVIDENCE_CONTROLLED_OPT_IN_POLICY);
+    expect(validateHatchEvidenceRegistry()).toEqual({ valid: true, errors: [], warnings: [] });
+  });
+
+  it('validates external registry arguments structurally while retaining official singleton identity', () => {
+    const structuralPolicyCopy = controlledPolicyCopy();
+    expect(structuralPolicyCopy).not.toBe(HATCH_EVIDENCE_CONTROLLED_OPT_IN_POLICY);
+    expect(Object.getPrototypeOf(structuralPolicyCopy)).toBe(Object.prototype);
+    CONTROLLED_POLICY_ARRAY_FIELDS.forEach(field => {
+      expect(structuralPolicyCopy[field]).not.toBe(HATCH_EVIDENCE_CONTROLLED_OPT_IN_POLICY[field]);
+      expect(Object.getPrototypeOf(structuralPolicyCopy[field])).toBe(Array.prototype);
+    });
+    expectDeeplyFrozen(structuralPolicyCopy);
+    expect(validateHatchEvidenceRegistry(registryWithControlledPolicy(structuralPolicyCopy)))
+      .toEqual({ valid: true, errors: [], warnings: [] });
+  });
+
+  it('rejects a mutable outer policy with every internal array frozen', () => {
+    const policy = freezePolicyArrays(clone(HATCH_EVIDENCE_CONTROLLED_OPT_IN_POLICY));
+    const before = clone(policy);
+    expect(Object.isFrozen(policy)).toBe(false);
+    CONTROLLED_POLICY_ARRAY_FIELDS.forEach(field => expect(Object.isFrozen(policy[field])).toBe(true));
+    expectControlledPolicyInvalid(policy);
+    expect(policy).toEqual(before);
+  });
+
+  it.each(CONTROLLED_POLICY_ARRAY_FIELDS)(
+    'rejects isolated mutable internal array %s',
+    mutableField => {
+      const policy = freezePolicyArrays(clone(HATCH_EVIDENCE_CONTROLLED_OPT_IN_POLICY), mutableField);
+      Object.freeze(policy);
+      const before = clone(policy);
+      CONTROLLED_POLICY_ARRAY_FIELDS.forEach(field => {
+        expect(Object.isFrozen(policy[field])).toBe(field !== mutableField);
+      });
+      expectControlledPolicyInvalid(policy);
+      expect(policy).toEqual(before);
+    },
+  );
+
+  it('rejects a policy with a required property absent', () => {
+    const policy = clone(HATCH_EVIDENCE_CONTROLLED_OPT_IN_POLICY);
+    delete policy.defaultEnabled;
+    expectControlledPolicyInvalid(freezeDeep(policy));
+  });
+
+  it('rejects a policy with an additional enumerable property', () => {
+    expectControlledPolicyInvalid(controlledPolicyCopy({ future: true }));
+  });
+
+  it('rejects a policy with an additional non-enumerable property', () => {
+    const policy = clone(HATCH_EVIDENCE_CONTROLLED_OPT_IN_POLICY);
+    Object.defineProperty(policy, 'hidden', { value: true, enumerable: false, configurable: true });
+    expectControlledPolicyInvalid(freezeDeep(policy));
+  });
+
+  it('rejects a policy with an additional Symbol key', () => {
+    const policy = clone(HATCH_EVIDENCE_CONTROLLED_OPT_IN_POLICY);
+    policy[Symbol('hidden')] = true;
+    expectControlledPolicyInvalid(freezeDeep(policy));
+  });
+
+  it('rejects a policy with a custom outer prototype', () => {
+    const policy = clone(HATCH_EVIDENCE_CONTROLLED_OPT_IN_POLICY);
+    Object.setPrototypeOf(policy, { customPolicyPrototype: true });
+    expectControlledPolicyInvalid(freezeDeep(policy));
+  });
+
+  it('rejects an activationMode getter without executing it', () => {
+    let getterCalls = 0;
+    const policy = policyWithAccessor('activationMode', {
+      get() {
+        getterCalls += 1;
+        return HATCH_EVIDENCE_CONTROLLED_OPT_IN_MODE;
+      },
+    });
+    expectControlledPolicyInvalid(policy);
+    expect(getterCalls).toBe(0);
+  });
+
+  it('rejects a throwing getter without throwing or executing it', () => {
+    let getterCalls = 0;
+    const policy = policyWithAccessor('activationMode', {
+      get() {
+        getterCalls += 1;
+        throw new Error('getter must not execute');
+      },
+    });
+    expectControlledPolicyInvalid(policy);
+    expect(getterCalls).toBe(0);
+  });
+
+  it('rejects a setter on an expected property without executing it', () => {
+    let setterCalls = 0;
+    const policy = policyWithAccessor('productionIntegration', {
+      set() {
+        setterCalls += 1;
+      },
+    });
+    expectControlledPolicyInvalid(policy);
+    expect(setterCalls).toBe(0);
+  });
+
+  it('rejects string false for productionIntegration', () => {
+    expectControlledPolicyInvalid(controlledPolicyCopy({ productionIntegration: 'false' }));
+  });
+
+  it.each([
+    ['activationMode', 'future'],
+    ['defaultEnabled', true],
+    ['allOnAllowed', true],
+    ['productionIntegration', true],
+  ])('rejects divergent scalar policy field %s', (field, value) => {
+    expectControlledPolicyInvalid(controlledPolicyCopy({ [field]: value }));
+  });
+
+  it.each(CONTROLLED_POLICY_ARRAY_FIELDS)(
+    'rejects incorrect type for array field %s',
+    field => expectControlledPolicyInvalid(controlledPolicyCopy({ [field]: {} })),
+  );
+
+  it('rejects interchanged operational and diagnostic classifications', () => {
+    expectControlledPolicyInvalid(controlledPolicyCopy({
+      operationalRuleIds: [...HATCH_EVIDENCE_CONTROLLED_OPT_IN_POLICY.diagnosticRuleIds],
+      diagnosticRuleIds: [...HATCH_EVIDENCE_CONTROLLED_OPT_IN_POLICY.operationalRuleIds],
+    }));
+  });
+
+  it('rejects an internal array with incorrect order', () => {
+    expectControlledPolicyInvalid(controlledPolicyCopy({
+      operationalRuleIds: [HOLE_MIN_SIZE, SATIN_RANGE],
+    }));
+  });
+
+  it('rejects an internal array with a duplicate ID', () => {
+    expectControlledPolicyInvalid(controlledPolicyCopy({
+      operationalRuleIds: [SATIN_RANGE, SATIN_RANGE, HOLE_MIN_SIZE],
+    }));
+  });
+
+  it('rejects an internal array with an unknown ID', () => {
+    expectControlledPolicyInvalid(controlledPolicyCopy({
+      operationalRuleIds: [SATIN_RANGE, 'FUTURE-RULE'],
+    }));
+  });
+
+  it.each([
+    ['operationalRuleIds', [SATIN_RANGE]],
+    ['diagnosticRuleIds', [HOLE_PRESERVE]],
+    ['mutuallyExclusiveOperationalRuleIds', [HOLE_MIN_SIZE]],
+  ])('rejects incorrect classification or length for array field %s', (field, value) => {
+    expectControlledPolicyInvalid(controlledPolicyCopy({ [field]: value }));
+  });
+
+  it('rejects an internal array with an additional enumerable property', () => {
+    const value = [...HATCH_EVIDENCE_CONTROLLED_OPT_IN_POLICY.operationalRuleIds];
+    value.future = true;
+    expectControlledPolicyInvalid(policyWithArray('operationalRuleIds', value));
+  });
+
+  it('rejects an internal array with an additional non-enumerable property', () => {
+    const value = [...HATCH_EVIDENCE_CONTROLLED_OPT_IN_POLICY.operationalRuleIds];
+    Object.defineProperty(value, 'hidden', { value: true, enumerable: false, configurable: true });
+    expectControlledPolicyInvalid(policyWithArray('operationalRuleIds', value));
+  });
+
+  it('rejects an internal array with an additional Symbol key', () => {
+    const value = [...HATCH_EVIDENCE_CONTROLLED_OPT_IN_POLICY.operationalRuleIds];
+    value[Symbol('hidden')] = true;
+    expectControlledPolicyInvalid(policyWithArray('operationalRuleIds', value));
+  });
+
+  it('rejects an internal array with a custom prototype', () => {
+    const value = [...HATCH_EVIDENCE_CONTROLLED_OPT_IN_POLICY.operationalRuleIds];
+    Object.setPrototypeOf(value, Object.create(Array.prototype));
+    expectControlledPolicyInvalid(policyWithArray('operationalRuleIds', value));
+  });
+
+  it('rejects an internal array getter without executing it', () => {
+    let getterCalls = 0;
+    const value = [...HATCH_EVIDENCE_CONTROLLED_OPT_IN_POLICY.operationalRuleIds];
+    Object.defineProperty(value, '0', {
+      get() {
+        getterCalls += 1;
+        return SATIN_RANGE;
+      },
+      enumerable: true,
+      configurable: true,
+    });
+    expectControlledPolicyInvalid(policyWithArray('operationalRuleIds', value));
+    expect(getterCalls).toBe(0);
+  });
+
+  it.each([
+    ['getPrototypeOf', { getPrototypeOf() { throw new Error('hostile getPrototypeOf'); } }],
+    ['ownKeys', { ownKeys() { throw new Error('hostile ownKeys'); } }],
+    ['getOwnPropertyDescriptor', {
+      getOwnPropertyDescriptor() { throw new Error('hostile getOwnPropertyDescriptor'); },
+    }],
+  ])('rejects a hostile outer Proxy whose %s introspection throws', (_trapName, handler) => {
+    const target = controlledPolicyCopy();
+    const policy = new Proxy(target, handler);
+    expectControlledPolicyInvalid(policy);
+    expectDeeplyFrozen(target);
+  });
+
+  it('does not intervene when activationMode is absent or undefined', () => {
+    const allOnExperimental = {
+      hatchEvidenceProfile: 'hatch-a-f-experimental',
+      hatchEvidenceRuleFlags: Object.fromEntries(HATCH_EVIDENCE_RULE_IDS.map(ruleId => [ruleId, true])),
+    };
+    const results = [
+      resolveHatchEvidenceControlledOptInPolicy(),
+      resolveHatchEvidenceControlledOptInPolicy(allOnExperimental),
+      resolveHatchEvidenceControlledOptInPolicy({
+        ...allOnExperimental,
+        hatchEvidenceActivationMode: undefined,
+      }),
+    ];
+    results.forEach(result => {
+      expect(result).toEqual(emptyPolicy);
+      expectDeeplyFrozen(result);
+    });
+    expect(resolveHatchEvidenceIntegrationConfig(allOnExperimental).enabledRuleIds)
+      .toEqual(HATCH_EVIDENCE_RULE_IDS);
+  });
+
+  it.each([
+    [0, null],
+    [1, ''],
+    [2, 'experimental-evidence'],
+    [3, 0],
+    [4, 1],
+    [5, true],
+    [6, false],
+    [7, []],
+    [8, {}],
+  ])('rejects invalid activationMode type/value case %# with highest precedence', (_caseId, value) => {
+    const config = controlledConfig([SATIN_RANGE], { hatchEvidenceActivationMode: value });
+    const validation = validateHatchEvidenceIntegrationConfig(config, {
+      technicalConfig: { satin: { maximumWidthMm: 9.18 } },
+    });
+    expect(validation.errors[0]).toMatchObject({
+      code: 'INVALID_HATCH_EVIDENCE_ACTIVATION_MODE',
+      path: 'hatchEvidenceActivationMode',
+    });
+    expect(validateObjectPlanningConfig(config, {
+      technicalConfig: { satin: { maximumWidthMm: 9.18 } },
+    }).errors[0].code).toBe('INVALID_HATCH_EVIDENCE_ACTIVATION_MODE');
+    const policy = resolveHatchEvidenceControlledOptInPolicy(config, {
+      technicalConfig: { satin: { maximumWidthMm: 9.18 } },
+    });
+    expect(policy).toEqual({
+      ...emptyPolicy,
+      fallbackToLegacy: true,
+      fallbackReasonCodes: ['INVALID_HATCH_EVIDENCE_ACTIVATION_MODE'],
+    });
+    expectDeeplyFrozen(policy);
+  });
+
+  it('requires the explicit experimental profile and treats controlled all-OFF as valid fallback', () => {
+    const incompatible = controlledConfig([], { hatchEvidenceProfile: 'legacy' });
+    expect(validateHatchEvidenceIntegrationConfig(incompatible).errors[0].code)
+      .toBe('HATCH_CONTROLLED_OPT_IN_REQUIRES_EXPERIMENTAL_PROFILE');
+    expect(resolveHatchEvidenceControlledOptInPolicy(incompatible)).toEqual({
+      ...emptyPolicy,
+      fallbackToLegacy: true,
+      fallbackReasonCodes: ['HATCH_CONTROLLED_OPT_IN_REQUIRES_EXPERIMENTAL_PROFILE'],
+    });
+
+    const allOff = controlledConfig([]);
+    expect(validateHatchEvidenceIntegrationConfig(allOff)).toEqual(expect.objectContaining({
+      valid: true,
+      errors: [],
+      warnings: [],
+    }));
+    expect(resolveHatchEvidenceControlledOptInPolicy(allOff)).toEqual({
+      ...emptyPolicy,
+      fallbackToLegacy: true,
+      fallbackReasonCodes: ['HATCH_CONTROLLED_OPT_IN_NO_EFFECTIVE_RULES'],
+    });
+  });
+
+  it.each([
+    [SATIN_RANGE, [SATIN_RANGE], []],
+    [LOCAL_WIDTH, [], [LOCAL_WIDTH]],
+    [HOLE_PRESERVE, [], [HOLE_PRESERVE]],
+    [HOLE_MIN_SIZE, [HOLE_MIN_SIZE], []],
+  ])('classifies individual controlled rule %s without upgrading diagnostics', (ruleId, operationalRuleIds, diagnosticRuleIds) => {
+    const options = ruleId === SATIN_RANGE
+      ? { technicalConfig: { satin: { maximumWidthMm: 9.18 } } }
+      : {};
+    const policy = resolveHatchEvidenceControlledOptInPolicy(controlledConfig([ruleId]), options);
+    expect(policy).toEqual({
+      operationalRuleIds,
+      diagnosticRuleIds,
+      effectiveRuleIds: [ruleId],
+      fallbackToLegacy: false,
+      fallbackReasonCodes: [],
+    });
+    expectDeeplyFrozen(policy);
+  });
+
+  it('preserves canonical ID order for one operational rule plus both diagnostics', () => {
+    const policy = resolveHatchEvidenceControlledOptInPolicy(
+      controlledConfig([HOLE_PRESERVE, SATIN_RANGE, LOCAL_WIDTH]),
+      { technicalConfig: { satin: { maximumWidthMm: 9.18 } } },
+    );
+    expect(policy).toEqual({
+      operationalRuleIds: [SATIN_RANGE],
+      diagnosticRuleIds: [LOCAL_WIDTH, HOLE_PRESERVE],
+      effectiveRuleIds: [SATIN_RANGE, LOCAL_WIDTH, HOLE_PRESERVE],
+      fallbackToLegacy: false,
+      fallbackReasonCodes: [],
+    });
+  });
+
+  it.each([
+    [LOCAL_WIDTH, [LOCAL_WIDTH, HOLE_MIN_SIZE]],
+    [HOLE_PRESERVE, [HOLE_PRESERVE, HOLE_MIN_SIZE]],
+  ])('combines controlled HOLE-MIN with diagnostic %s without requiring SATIN technical config', (diagnosticRuleId, effectiveRuleIds) => {
+    expect(resolveHatchEvidenceControlledOptInPolicy(
+      controlledConfig([HOLE_MIN_SIZE, diagnosticRuleId]),
+    )).toEqual({
+      operationalRuleIds: [HOLE_MIN_SIZE],
+      diagnosticRuleIds: [diagnosticRuleId],
+      effectiveRuleIds,
+      fallbackToLegacy: false,
+      fallbackReasonCodes: [],
+    });
+  });
+
+  it('rejects ALL-ON before the operational conflict and rejects the conflict otherwise', () => {
+    const options = { technicalConfig: { satin: { maximumWidthMm: 9.18 } } };
+    const allOn = controlledConfig(HATCH_EVIDENCE_RULE_IDS);
+    expect(validateHatchEvidenceIntegrationConfig(allOn, options).errors[0].code)
+      .toBe('HATCH_CONTROLLED_OPT_IN_ALL_ON_FORBIDDEN');
+    expect(resolveHatchEvidenceControlledOptInPolicy(allOn, options)).toEqual({
+      ...emptyPolicy,
+      fallbackToLegacy: true,
+      fallbackReasonCodes: ['HATCH_CONTROLLED_OPT_IN_ALL_ON_FORBIDDEN'],
+    });
+
+    const conflict = controlledConfig([SATIN_RANGE, HOLE_MIN_SIZE]);
+    expect(validateHatchEvidenceIntegrationConfig(conflict, options).errors[0].code)
+      .toBe('HATCH_CONTROLLED_OPT_IN_OPERATIONAL_CONFLICT');
+    expect(resolveHatchEvidenceControlledOptInPolicy(conflict, options)).toEqual({
+      ...emptyPolicy,
+      fallbackToLegacy: true,
+      fallbackReasonCodes: ['HATCH_CONTROLLED_OPT_IN_OPERATIONAL_CONFLICT'],
+    });
+  });
+
+  it('reuses existing context and technical validation codes and fails closed', () => {
+    const missingContext = controlledConfig([LOCAL_WIDTH], { hatchEvidenceContext: undefined });
+    expect(resolveHatchEvidenceControlledOptInPolicy(missingContext).fallbackReasonCodes).toEqual([
+      'MISSING_HATCH_EVIDENCE_FABRIC',
+      'MISSING_HATCH_EVIDENCE_SCALE_COMPATIBILITY',
+    ]);
+
+    const invalidContext = controlledConfig([LOCAL_WIDTH], {
+      hatchEvidenceContext: { fabricProfile: 42, referenceScaleCompatible: 'yes' },
+    });
+    expect(resolveHatchEvidenceControlledOptInPolicy(invalidContext).fallbackReasonCodes).toEqual([
+      'INVALID_HATCH_EVIDENCE_FABRIC',
+      'INVALID_HATCH_EVIDENCE_SCALE_COMPATIBILITY',
+    ]);
+
+    const satin = controlledConfig([SATIN_RANGE]);
+    expect(resolveHatchEvidenceControlledOptInPolicy(satin).fallbackReasonCodes)
+      .toEqual(['MISSING_HATCH_EFFECTIVE_TECHNICAL_CONFIG']);
+    expect(resolveHatchEvidenceControlledOptInPolicy(satin, {
+      technicalConfig: { satin: { maximumWidthMm: Number.NaN } },
+    })).toEqual({
+      ...emptyPolicy,
+      fallbackToLegacy: true,
+      fallbackReasonCodes: [
+        'INVALID_HATCH_EFFECTIVE_TECHNICAL_CONFIG',
+        'INVALID_HATCH_EFFECTIVE_SATIN_MAXIMUM',
+      ],
+    });
+
+    const unknownFlag = controlledConfig([], { hatchEvidenceRuleFlags: { future: true } });
+    expect(resolveHatchEvidenceControlledOptInPolicy(unknownFlag).fallbackReasonCodes)
+      .toEqual(['UNKNOWN_HATCH_EVIDENCE_RULE_FLAG']);
+  });
+
+  it('orders future fallback codes ordinally without deriving the expectation from production sorting', () => {
+    const input = [
+      'FUTURE_Á',
+      'INVALID_HATCH_EVIDENCE_RULE_FLAG_VALUE',
+      'FUTURE_a',
+      'UNKNOWN_HATCH_EVIDENCE_RULE_FLAG',
+      'FUTURE_Z',
+      'FUTURE_a',
+    ];
+    const before = [...input];
+    const result = canonicalizeHatchEvidenceControlledFallbackReasonCodes(input);
+    expect(result).toEqual([
+      'UNKNOWN_HATCH_EVIDENCE_RULE_FLAG',
+      'INVALID_HATCH_EVIDENCE_RULE_FLAG_VALUE',
+      'FUTURE_Z',
+      'FUTURE_a',
+      'FUTURE_Á',
+    ]);
+    expect(Object.isFrozen(result)).toBe(true);
+    expect(input).toEqual(before);
+  });
+
+  it('canonicalizes fallback codes independently from flag insertion order without mutating inputs', () => {
+    const unknownFirst = controlledConfig([], {
+      hatchEvidenceRuleFlags: { future: true, [SATIN_RANGE]: 'yes' },
+    });
+    const canonicalFirst = controlledConfig([], {
+      hatchEvidenceRuleFlags: { [SATIN_RANGE]: 'yes', future: true },
+    });
+    const unknownFirstBefore = structuredClone(unknownFirst);
+    const canonicalFirstBefore = structuredClone(canonicalFirst);
+    const expected = {
+      operationalRuleIds: [],
+      diagnosticRuleIds: [],
+      effectiveRuleIds: [],
+      fallbackToLegacy: true,
+      fallbackReasonCodes: [
+        'UNKNOWN_HATCH_EVIDENCE_RULE_FLAG',
+        'INVALID_HATCH_EVIDENCE_RULE_FLAG_VALUE',
+      ],
+    };
+
+    const unknownFirstResult = resolveHatchEvidenceControlledOptInPolicy(unknownFirst);
+    const canonicalFirstResult = resolveHatchEvidenceControlledOptInPolicy(canonicalFirst);
+    expect(unknownFirstResult).toEqual(expected);
+    expect(canonicalFirstResult).toEqual(expected);
+    expect(canonicalFirstResult).toEqual(unknownFirstResult);
+    expectDeeplyFrozen(unknownFirstResult);
+    expectDeeplyFrozen(canonicalFirstResult);
+    expect(unknownFirst).toEqual(unknownFirstBefore);
+    expect(canonicalFirst).toEqual(canonicalFirstBefore);
+  });
+
+  it('fails closed on a canonical non-boolean flag without adding NO-EFFECTIVE', () => {
+    const config = controlledConfig([], {
+      hatchEvidenceRuleFlags: { [HOLE_MIN_SIZE]: 'yes' },
+    });
+    const before = structuredClone(config);
+    expect(resolveHatchEvidenceControlledOptInPolicy(config)).toEqual({
+      operationalRuleIds: [],
+      diagnosticRuleIds: [],
+      effectiveRuleIds: [],
+      fallbackToLegacy: true,
+      fallbackReasonCodes: ['INVALID_HATCH_EVIDENCE_RULE_FLAG_VALUE'],
+    });
+    expect(config).toEqual(before);
   });
 });
