@@ -54,10 +54,11 @@ function corpusSources() {
   ];
 }
 
-function planningConfig(ruleIds) {
+function planningConfig(ruleIds, activationMode) {
   if (ruleIds === null) return {};
   return {
     hatchEvidenceProfile: 'hatch-a-f-experimental',
+    ...(activationMode === undefined ? {} : { hatchEvidenceActivationMode: activationMode }),
     hatchEvidenceRuleFlags: Object.fromEntries(ruleIds.map(ruleId => [ruleId, true])),
     hatchEvidenceContext: {
       fabricProfile: 'Pure Cotton',
@@ -100,13 +101,59 @@ function operationalSnapshot(run) {
     technicalSatinMaximumWidthMm: run.technicalPlan.config.satin.maximumWidthMm,
     objectCount: run.threadedObjectMaterialization.objects.length,
     physicalStitchCount: run.physicalPlan.summary.physicalStitchCount,
+    commandCount: run.canonicalCompilation.commands.length,
     stitchCommands: countCommands(run.canonicalCompilation, 'stitch'),
     jumpCommands: countCommands(run.canonicalCompilation, 'jump'),
     trimCommands: countCommands(run.canonicalCompilation, 'trim'),
+    physicalSourceStitchCommands: run.canonicalCompilation.commands
+      .filter(command => command.reasonCode === 'PHYSICAL_SOURCE_STITCH').length,
+    connectorStitchCommands: run.canonicalCompilation.commands
+      .filter(command => command.reasonCode === 'SAFE_SUBPATH_CONNECTOR').length,
   };
 }
 
-function runCorpus(ruleIds = null, technicalSatinMaximumWidthMm = DEFAULT_TECHNICAL_SATIN_MAXIMUM_MM) {
+function intrinsicProposalSnapshot(run) {
+  return Object.fromEntries(run.proposalPlan.proposals.map(proposal => [proposal.regionId, {
+    proposedEmbroideryRole: proposal.proposedEmbroideryRole,
+    proposedStitchType: proposal.proposedStitchType,
+    needsReview: proposal.needsReview,
+    excluded: proposal.excluded,
+    geometryMm: proposal.geometryMm,
+    holesMm: proposal.holesMm,
+  }]));
+}
+
+function intrinsicPhysicalRegionSnapshot(run) {
+  return Object.fromEntries(run.proposalPlan.proposals.map(proposal => {
+    const object = run.threadedObjectMaterialization.objects
+      .find(item => item.regionId === proposal.regionId) ?? null;
+    const path = run.physicalPlan.objectPaths
+      .find(item => item.regionId === proposal.regionId) ?? null;
+    const commands = run.canonicalCompilation.commands
+      .filter(command => command.regionId === proposal.regionId);
+    return [proposal.regionId, {
+      proposedEmbroideryRole: proposal.proposedEmbroideryRole,
+      proposedStitchType: proposal.proposedStitchType,
+      needsReview: proposal.needsReview,
+      geometryMm: proposal.geometryMm,
+      holesMm: proposal.holesMm,
+      objectCount: object ? 1 : 0,
+      finalStitchType: object?.stitchType ?? null,
+      physicalPathCount: path ? 1 : 0,
+      physicalStitchCount: path?.physicalStitchCount ?? 0,
+      underlayStitchCount: path?.underlayStitchCount ?? 0,
+      topStitchCount: path?.topStitchCount ?? 0,
+      physicalSourceStitchCommands: commands
+        .filter(command => command.reasonCode === 'PHYSICAL_SOURCE_STITCH').length,
+    }];
+  }));
+}
+
+function runCorpus(
+  ruleIds = null,
+  technicalSatinMaximumWidthMm = DEFAULT_TECHNICAL_SATIN_MAXIMUM_MM,
+  activationMode,
+) {
   const definitions = corpusSources();
   const sourceRegions = definitions.map(item => item.source);
   const sourceBefore = structuredClone(sourceRegions);
@@ -120,7 +167,7 @@ function runCorpus(ruleIds = null, technicalSatinMaximumWidthMm = DEFAULT_TECHNI
     regions: ingestion.regions,
     graph: ingestion.graph,
     semanticResult,
-    config: planningConfig(ruleIds),
+    config: planningConfig(ruleIds, activationMode),
     technicalConfig,
   });
   const objectDraftMaterialization = materializeEmbroideryObjectDrafts({
@@ -281,5 +328,179 @@ describe('Hatch A/B planning corpus before export', () => {
       expect(firstHash).toBe(secondHash);
       expect(first).toMatchObject(expectedMetrics);
     });
+  }, 15000);
+});
+
+describe('R03 controlled Hatch A/B planning corpus', () => {
+  const CONTROLLED_OPT_IN = 'controlled-opt-in';
+
+  it('falls back operationally to legacy with every controlled flag OFF', () => {
+    const legacy = runCorpus();
+    const controlledOff = runCorpus([], DEFAULT_TECHNICAL_SATIN_MAXIMUM_MM, CONTROLLED_OPT_IN);
+    expectValidPreExportRun(legacy);
+    expectValidPreExportRun(controlledOff);
+    expect(operationalSnapshot(controlledOff)).toEqual(operationalSnapshot(legacy));
+    controlledOff.proposalPlan.proposals.forEach(proposal => {
+      expect(proposal.source).not.toHaveProperty('hatchEvidence');
+    });
+  });
+
+  it('preserves the existing individual operational results under explicit controlled opt-in', () => {
+    const legacy = runCorpus();
+    const legacy918 = runCorpus(null, EXPERIMENTAL_TECHNICAL_SATIN_MAXIMUM_MM);
+    const experimentalSatin = runCorpus([SATIN_RANGE], EXPERIMENTAL_TECHNICAL_SATIN_MAXIMUM_MM);
+    const controlledSatin = runCorpus(
+      [SATIN_RANGE],
+      EXPERIMENTAL_TECHNICAL_SATIN_MAXIMUM_MM,
+      CONTROLLED_OPT_IN,
+    );
+    const controlledNegative = runCorpus(
+      [SATIN_RANGE],
+      DEFAULT_TECHNICAL_SATIN_MAXIMUM_MM,
+      CONTROLLED_OPT_IN,
+    );
+    const experimentalMinimum = runCorpus([HOLE_MIN_SIZE]);
+    const controlledMinimum = runCorpus(
+      [HOLE_MIN_SIZE],
+      DEFAULT_TECHNICAL_SATIN_MAXIMUM_MM,
+      CONTROLLED_OPT_IN,
+    );
+    [legacy, legacy918, experimentalSatin, controlledSatin, controlledNegative, experimentalMinimum, controlledMinimum]
+      .forEach(expectValidPreExportRun);
+
+    expect(operationalSnapshot(controlledSatin)).toEqual(operationalSnapshot(experimentalSatin));
+    expect(operationalSnapshot(controlledNegative)).toEqual(operationalSnapshot(legacy));
+    expect(operationalSnapshot(controlledMinimum)).toEqual(operationalSnapshot(experimentalMinimum));
+    expect(controlledSatin.proposalPlan.byRegionId['corpus-satin'].source.hatchEvidence).toMatchObject({
+      activationMode: CONTROLLED_OPT_IN,
+      operationalRuleIds: [SATIN_RANGE],
+      diagnosticRuleIds: [],
+      effectiveRuleIds: [SATIN_RANGE],
+    });
+    expect(controlledMinimum.proposalPlan.byRegionId['corpus-hole-small']).toMatchObject({
+      proposedStitchType: 'manual',
+      needsReview: true,
+    });
+    expect(operationalSnapshot(legacy918).proposalTechniques['corpus-satin']).toBe('tatami');
+  });
+
+  it('keeps both controlled diagnostic rules operationally identical to legacy', () => {
+    const legacy = runCorpus();
+    const local = runCorpus([LOCAL_WIDTH], DEFAULT_TECHNICAL_SATIN_MAXIMUM_MM, CONTROLLED_OPT_IN);
+    const preserve = runCorpus([HOLE_PRESERVE], DEFAULT_TECHNICAL_SATIN_MAXIMUM_MM, CONTROLLED_OPT_IN);
+    [legacy, local, preserve].forEach(expectValidPreExportRun);
+    expect(operationalSnapshot(local)).toEqual(operationalSnapshot(legacy));
+    expect(operationalSnapshot(preserve)).toEqual(operationalSnapshot(legacy));
+    expect(local.proposalPlan.byRegionId['corpus-local'].source.hatchEvidence).toMatchObject({
+      operationalRuleIds: [],
+      diagnosticRuleIds: [LOCAL_WIDTH],
+    });
+    expect(preserve.proposalPlan.byRegionId['corpus-hole-safe'].source.hatchEvidence).toMatchObject({
+      operationalRuleIds: [],
+      diagnosticRuleIds: [HOLE_PRESERVE],
+    });
+  });
+
+  it('preserves survivor intrinsic identity while allowing the accredited global resequencing', () => {
+    const legacy = runCorpus();
+    const minimum = runCorpus([HOLE_MIN_SIZE], DEFAULT_TECHNICAL_SATIN_MAXIMUM_MM, CONTROLLED_OPT_IN);
+    expectValidPreExportRun(legacy);
+    expectValidPreExportRun(minimum);
+    const legacyIntrinsic = intrinsicProposalSnapshot(legacy);
+    const minimumIntrinsic = intrinsicProposalSnapshot(minimum);
+    const legacyPhysicalIntrinsic = intrinsicPhysicalRegionSnapshot(legacy);
+    const minimumPhysicalIntrinsic = intrinsicPhysicalRegionSnapshot(minimum);
+    ['corpus-satin', 'corpus-local', 'corpus-hole-safe'].forEach(regionId => {
+      expect(minimumIntrinsic[regionId]).toEqual(legacyIntrinsic[regionId]);
+      expect(minimumPhysicalIntrinsic[regionId]).toEqual(legacyPhysicalIntrinsic[regionId]);
+    });
+    expect(minimumIntrinsic['corpus-hole-small']).toMatchObject({
+      proposedEmbroideryRole: 'manual_review',
+      proposedStitchType: 'manual',
+      needsReview: true,
+    });
+    expect(operationalSnapshot(legacy)).toMatchObject({
+      objectCount: 4,
+      physicalStitchCount: 1337,
+      stitchCommands: 1516,
+      jumpCommands: 25,
+      trimCommands: 24,
+    });
+    expect(operationalSnapshot(minimum)).toMatchObject({
+      objectCount: 3,
+      physicalStitchCount: 765,
+      stitchCommands: 876,
+      jumpCommands: 17,
+      trimCommands: 16,
+    });
+  });
+
+  it('combines controlled HOLE-MIN with a diagnostic rule without changing its localized effect', () => {
+    const legacy = runCorpus();
+    const minimum = runCorpus([HOLE_MIN_SIZE], DEFAULT_TECHNICAL_SATIN_MAXIMUM_MM, CONTROLLED_OPT_IN);
+    const mixed = runCorpus(
+      [HOLE_PRESERVE, HOLE_MIN_SIZE],
+      DEFAULT_TECHNICAL_SATIN_MAXIMUM_MM,
+      CONTROLLED_OPT_IN,
+    );
+    [legacy, minimum, mixed].forEach(expectValidPreExportRun);
+    expect(operationalSnapshot(mixed)).toEqual(operationalSnapshot(minimum));
+    expect(intrinsicPhysicalRegionSnapshot(mixed)).toEqual(intrinsicPhysicalRegionSnapshot(minimum));
+
+    const legacyIntrinsic = intrinsicPhysicalRegionSnapshot(legacy);
+    const mixedIntrinsic = intrinsicPhysicalRegionSnapshot(mixed);
+    const changedRegionIds = Object.keys(mixedIntrinsic)
+      .filter(regionId => JSON.stringify(mixedIntrinsic[regionId]) !== JSON.stringify(legacyIntrinsic[regionId]));
+    expect(changedRegionIds).toEqual(['corpus-hole-small']);
+    expect(mixed.proposalPlan.byRegionId['corpus-hole-small']).toMatchObject({
+      proposedEmbroideryRole: 'manual_review',
+      proposedStitchType: 'manual',
+      needsReview: true,
+    });
+    expect(mixed.proposalPlan.byRegionId['corpus-hole-safe']).toMatchObject({
+      proposedStitchType: 'tatami',
+      needsReview: false,
+    });
+    expect(mixed.proposalPlan.byRegionId['corpus-hole-small'].source.hatchEvidence).toMatchObject({
+      operationalRuleIds: [HOLE_MIN_SIZE],
+      diagnosticRuleIds: [HOLE_PRESERVE],
+      effectiveRuleIds: [HOLE_PRESERVE, HOLE_MIN_SIZE],
+    });
+  });
+
+  it('rejects controlled operational conflict and ALL-ON before downstream effects', () => {
+    const legacy = runCorpus(null, EXPERIMENTAL_TECHNICAL_SATIN_MAXIMUM_MM);
+    const conflict = runCorpus(
+      [SATIN_RANGE, HOLE_MIN_SIZE],
+      EXPERIMENTAL_TECHNICAL_SATIN_MAXIMUM_MM,
+      CONTROLLED_OPT_IN,
+    );
+    const allOn = runCorpus(
+      [SATIN_RANGE, LOCAL_WIDTH, HOLE_PRESERVE, HOLE_MIN_SIZE],
+      EXPERIMENTAL_TECHNICAL_SATIN_MAXIMUM_MM,
+      CONTROLLED_OPT_IN,
+    );
+    expect(conflict.proposalPlan.valid).toBe(false);
+    expect(conflict.proposalPlan.errors[0].code).toBe('HATCH_CONTROLLED_OPT_IN_OPERATIONAL_CONFLICT');
+    expect(allOn.proposalPlan.valid).toBe(false);
+    expect(allOn.proposalPlan.errors[0].code).toBe('HATCH_CONTROLLED_OPT_IN_ALL_ON_FORBIDDEN');
+    expect(intrinsicProposalSnapshot(conflict)).toEqual(intrinsicProposalSnapshot(legacy));
+    expect(intrinsicProposalSnapshot(allOn)).toEqual(intrinsicProposalSnapshot(legacy));
+    [...conflict.proposalPlan.proposals, ...allOn.proposalPlan.proposals].forEach(proposal => {
+      expect(proposal.source).not.toHaveProperty('hatchEvidence');
+    });
+  });
+
+  it('is deterministic and input-immutable with one operational rule plus both diagnostics', () => {
+    const ruleIds = [SATIN_RANGE, LOCAL_WIDTH, HOLE_PRESERVE];
+    const first = runCorpus(ruleIds, EXPERIMENTAL_TECHNICAL_SATIN_MAXIMUM_MM, CONTROLLED_OPT_IN);
+    const second = runCorpus(ruleIds, EXPERIMENTAL_TECHNICAL_SATIN_MAXIMUM_MM, CONTROLLED_OPT_IN);
+    expectValidPreExportRun(first);
+    expectValidPreExportRun(second);
+    const firstSnapshot = operationalSnapshot(first);
+    const secondSnapshot = operationalSnapshot(second);
+    expect(secondSnapshot).toEqual(firstSnapshot);
+    expect(crypto.createHash('sha256').update(JSON.stringify(secondSnapshot)).digest('hex'))
+      .toBe(crypto.createHash('sha256').update(JSON.stringify(firstSnapshot)).digest('hex'));
   }, 15000);
 });

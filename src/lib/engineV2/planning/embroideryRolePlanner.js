@@ -2,7 +2,11 @@ import { analyzeArtworkColor } from '../semantics/colorFeatureAnalysis.js';
 import { analyzeRegionGeometryFeatures } from '../semantics/geometryFeatureAnalysis.js';
 import { analyzeSourceSemanticEvidence } from '../semantics/sourceSemanticEvidence.js';
 import { evaluateHatchHoleProtection } from '../rules/hatchEvidence/holes.js';
-import { resolveHatchEvidenceIntegrationConfig } from '../rules/hatchEvidence/profiles.js';
+import {
+  HATCH_EVIDENCE_CONTROLLED_OPT_IN_MODE,
+  resolveHatchEvidenceControlledOptInPolicy,
+  resolveHatchEvidenceIntegrationConfig,
+} from '../rules/hatchEvidence/profiles.js';
 import { evaluateHatchWidthTechniqueCandidate } from '../rules/hatchEvidence/widths.js';
 import { createEmbroideryObjectProposalV2 } from './embroideryPlanningModel.js';
 import { regionGeometryToMillimeters } from './normalizedToMillimeterGeometry.js';
@@ -38,6 +42,12 @@ function hatchTrace(integration, evaluations) {
     profile: integration.profile,
     enabledRuleIds: integration.enabledRuleIds,
     context: integration.context,
+    ...(integration.activationMode === HATCH_EVIDENCE_CONTROLLED_OPT_IN_MODE ? {
+      activationMode: integration.activationMode,
+      operationalRuleIds: integration.operationalRuleIds,
+      diagnosticRuleIds: integration.diagnosticRuleIds,
+      effectiveRuleIds: integration.effectiveRuleIds,
+    } : {}),
     evaluations,
   };
 }
@@ -192,16 +202,23 @@ function planExperimentalEmbroideryRoleForRegion({
   return createEmbroideryObjectProposalV2({ ...experimentalBase, proposedEmbroideryRole: role, proposedStitchType: stitchType, layer: ROLE_LAYERS[role] });
 }
 
-function requestedHatchProfile(config) {
-  const extras = config?.extras && typeof config.extras === 'object' ? config.extras : {};
-  return config?.hatchEvidenceProfile ?? extras.hatchEvidenceProfile;
-}
-
 export function planEmbroideryRoleForRegion(input) {
-  if (requestedHatchProfile(input?.config) !== 'hatch-a-f-experimental') {
-    return planLegacyEmbroideryRoleForRegion(input);
-  }
   const hatchIntegration = resolveHatchEvidenceIntegrationConfig(input.config);
-  if (!hatchIntegration.enabledRuleIds.length) return planLegacyEmbroideryRoleForRegion(input);
-  return planExperimentalEmbroideryRoleForRegion({ ...input, hatchIntegration });
+  const controlledPolicy = resolveHatchEvidenceControlledOptInPolicy(input.config, {
+    technicalConfig: input.technicalConfig,
+  });
+  if (controlledPolicy.fallbackToLegacy) return planLegacyEmbroideryRoleForRegion(input);
+  const effectiveIntegration = controlledPolicy.effectiveRuleIds.length
+    ? Object.freeze({
+      ...hatchIntegration,
+      enabledRuleIds: controlledPolicy.effectiveRuleIds,
+      activationMode: HATCH_EVIDENCE_CONTROLLED_OPT_IN_MODE,
+      operationalRuleIds: controlledPolicy.operationalRuleIds,
+      diagnosticRuleIds: controlledPolicy.diagnosticRuleIds,
+      effectiveRuleIds: controlledPolicy.effectiveRuleIds,
+    })
+    : hatchIntegration;
+  if (effectiveIntegration.profile !== 'hatch-a-f-experimental'
+    || !effectiveIntegration.enabledRuleIds.length) return planLegacyEmbroideryRoleForRegion(input);
+  return planExperimentalEmbroideryRoleForRegion({ ...input, hatchIntegration: effectiveIntegration });
 }

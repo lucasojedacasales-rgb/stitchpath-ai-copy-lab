@@ -35,6 +35,13 @@ function experimentalConfig(ruleIds = [], context = {}) {
   };
 }
 
+function controlledConfig(ruleIds = [], context = {}) {
+  return {
+    ...experimentalConfig(ruleIds, context),
+    hatchEvidenceActivationMode: 'controlled-opt-in',
+  };
+}
+
 function rectangle(id, widthMm, heightMm = 16) {
   const x1 = 0.2; const y1 = 0.1;
   return {
@@ -552,5 +559,194 @@ describe('strict legacy parity', () => {
     const source = rectangle('all-off-parity', 8);
     const allOff = experimentalConfig([]);
     expect(planOne(source, 'internal_feature', allOff)).toEqual(planOne(source, 'internal_feature'));
+  });
+});
+
+describe('R03 controlled opt-in planning', () => {
+  it('leaves absent and undefined activationMode on the exact experimental path without R03 trace fields', () => {
+    const source = rectangle('controlled-absent', 8);
+    const absent = planOne(
+      source,
+      'internal_feature',
+      experimentalConfig([SATIN_RANGE]),
+      EXPERIMENTAL_SATIN_TECHNICAL_CONFIG,
+    );
+    const explicitUndefined = planOne(
+      source,
+      'internal_feature',
+      { ...experimentalConfig([SATIN_RANGE]), hatchEvidenceActivationMode: undefined },
+      EXPERIMENTAL_SATIN_TECHNICAL_CONFIG,
+    );
+    expect(explicitUndefined).toEqual(absent);
+    [absent, explicitUndefined].forEach(proposal => {
+      expect(proposal.source.hatchEvidence).not.toHaveProperty('activationMode');
+      expect(proposal.source.hatchEvidence).not.toHaveProperty('operationalRuleIds');
+      expect(proposal.source.hatchEvidence).not.toHaveProperty('diagnosticRuleIds');
+      expect(proposal.source.hatchEvidence).not.toHaveProperty('effectiveRuleIds');
+    });
+  });
+
+  it('applies controlled SATIN at 9.18 mm and retains tatami at the effective 7 mm negative control', () => {
+    const source = rectangle('controlled-satin', 8);
+    const positive = planOne(
+      source,
+      'internal_feature',
+      controlledConfig([SATIN_RANGE]),
+      EXPERIMENTAL_SATIN_TECHNICAL_CONFIG,
+    );
+    const negative = planOne(
+      source,
+      'internal_feature',
+      controlledConfig([SATIN_RANGE]),
+      DEFAULT_TECHNICAL_CONFIG,
+    );
+    expect(positive.proposedStitchType).toBe('satin');
+    expect(negative.proposedStitchType).toBe('tatami');
+    [positive, negative].forEach(proposal => {
+      expect(proposal.source.hatchEvidence).toMatchObject({
+        activationMode: 'controlled-opt-in',
+        enabledRuleIds: [SATIN_RANGE],
+        operationalRuleIds: [SATIN_RANGE],
+        diagnosticRuleIds: [],
+        effectiveRuleIds: [SATIN_RANGE],
+      });
+    });
+    expect(negative.source.hatchEvidence.evaluations[0]).toMatchObject({
+      effectiveTechnicalSatinMaximumWidthMm: 7,
+      fallbackReason: 'width_above_technical_maximum',
+    });
+  });
+
+  it('keeps LOCAL-WIDTH and HOLE-PRESERVE diagnostic while HOLE-MIN remains the sole hole guard', () => {
+    const local = planOne(
+      rectangle('controlled-local', 8),
+      'internal_feature',
+      controlledConfig([LOCAL_WIDTH]),
+    );
+    expect(local.proposedStitchType).toBe('tatami');
+    expect(local.source.hatchEvidence).toMatchObject({
+      operationalRuleIds: [],
+      diagnosticRuleIds: [LOCAL_WIDTH],
+      effectiveRuleIds: [LOCAL_WIDTH],
+    });
+    expect(local.source.hatchEvidence.evaluations[0].candidateActionApplied).toBe(false);
+
+    const holeSource = regionWithHoles('controlled-hole', [squareHole(0.8)]);
+    const sourceBefore = structuredClone(holeSource);
+    const preserve = planOne(holeSource, 'primary_shape', controlledConfig([HOLE_PRESERVE]));
+    expect(preserve.proposedStitchType).toBe('tatami');
+    expect(preserve.source.hatchEvidence).toMatchObject({
+      operationalRuleIds: [],
+      diagnosticRuleIds: [HOLE_PRESERVE],
+      effectiveRuleIds: [HOLE_PRESERVE],
+    });
+    expect(preserve.source.hatchEvidence.evaluations[0]).toMatchObject({
+      preserveGeometry: true,
+      geometryMutationAllowed: false,
+    });
+
+    const minimum = planOne(holeSource, 'primary_shape', controlledConfig([HOLE_MIN_SIZE]));
+    expect(minimum).toMatchObject({ proposedStitchType: 'manual', needsReview: true });
+    expect(minimum.source.hatchEvidence).toMatchObject({
+      operationalRuleIds: [HOLE_MIN_SIZE],
+      diagnosticRuleIds: [],
+      effectiveRuleIds: [HOLE_MIN_SIZE],
+    });
+    expect(evaluatedRuleIds(minimum)).toEqual([HOLE_MIN_SIZE]);
+    expect(holeSource).toEqual(sourceBefore);
+  });
+
+  it('combines controlled HOLE-MIN with HOLE-PRESERVE without changing the accredited operational effect', () => {
+    const small = regionWithHoles('controlled-mixed-small', [squareHole(0.8)]);
+    const safe = regionWithHoles('controlled-mixed-safe', [squareHole(1.2)]);
+    const smallBefore = structuredClone(small);
+    const safeBefore = structuredClone(safe);
+    const minimumOnly = planOne(small, 'primary_shape', controlledConfig([HOLE_MIN_SIZE]));
+    const mixedConfig = controlledConfig([HOLE_PRESERVE, HOLE_MIN_SIZE]);
+    const mixedSmall = planOne(small, 'primary_shape', mixedConfig);
+    const mixedSafe = planOne(safe, 'primary_shape', mixedConfig);
+
+    expect(mixedSmall).toMatchObject({
+      proposedEmbroideryRole: minimumOnly.proposedEmbroideryRole,
+      proposedStitchType: minimumOnly.proposedStitchType,
+      needsReview: minimumOnly.needsReview,
+      geometryMm: minimumOnly.geometryMm,
+      holesMm: minimumOnly.holesMm,
+    });
+    expect(mixedSmall.source.hatchEvidence).toMatchObject({
+      activationMode: 'controlled-opt-in',
+      operationalRuleIds: [HOLE_MIN_SIZE],
+      diagnosticRuleIds: [HOLE_PRESERVE],
+      effectiveRuleIds: [HOLE_PRESERVE, HOLE_MIN_SIZE],
+    });
+    expect(evaluatedRuleIds(mixedSmall)).toEqual([HOLE_PRESERVE, HOLE_MIN_SIZE]);
+    expect(mixedSafe).toMatchObject({ proposedStitchType: 'tatami', needsReview: false });
+    expect(evaluatedRuleIds(mixedSafe)).toEqual([HOLE_PRESERVE, HOLE_MIN_SIZE]);
+    expect(small).toEqual(smallBefore);
+    expect(safe).toEqual(safeBefore);
+  });
+
+  it('fails closed to the exact legacy proposal for invalid, incompatible, empty and conflicting controlled configurations', () => {
+    const source = rectangle('controlled-fail-closed', 8);
+    const legacy = planOne(source, 'internal_feature');
+    const candidates = [
+      { ...controlledConfig([SATIN_RANGE]), hatchEvidenceActivationMode: 'future' },
+      { ...controlledConfig([SATIN_RANGE]), hatchEvidenceProfile: 'legacy' },
+      controlledConfig([]),
+      controlledConfig([SATIN_RANGE, HOLE_MIN_SIZE]),
+      controlledConfig(HATCH_EVIDENCE_RULE_IDS),
+      { ...controlledConfig([SATIN_RANGE]), hatchEvidenceContext: undefined },
+    ];
+    candidates.forEach(config => {
+      const proposal = planOne(source, 'internal_feature', config, EXPERIMENTAL_SATIN_TECHNICAL_CONFIG);
+      expect(proposal).toEqual(legacy);
+      expect(proposal.source).not.toHaveProperty('hatchEvidence');
+    });
+    expect(planOne(
+      source,
+      'internal_feature',
+      controlledConfig([SATIN_RANGE]),
+    )).toEqual(legacy);
+    expect(planOne(
+      source,
+      'internal_feature',
+      controlledConfig([SATIN_RANGE]),
+      { satin: { maximumWidthMm: Number.NaN } },
+    )).toEqual(legacy);
+  });
+
+  it('preserves experimental ALL-ON without activationMode as an R02 interaction only', () => {
+    const allOn = experimentalConfig(HATCH_EVIDENCE_RULE_IDS);
+    const satin = planOne(
+      rectangle('experimental-all-on-satin', 8),
+      'internal_feature',
+      allOn,
+      EXPERIMENTAL_SATIN_TECHNICAL_CONFIG,
+    );
+    const hole = planOne(
+      regionWithHoles('experimental-all-on-hole', [squareHole(0.8)]),
+      'primary_shape',
+      allOn,
+      EXPERIMENTAL_SATIN_TECHNICAL_CONFIG,
+    );
+    expect(satin.proposedStitchType).toBe('satin');
+    expect(hole.proposedStitchType).toBe('manual');
+    expect(evaluatedRuleIds(satin)).toEqual([LOCAL_WIDTH, SATIN_RANGE]);
+    expect(evaluatedRuleIds(hole)).toEqual([HOLE_PRESERVE, HOLE_MIN_SIZE]);
+    [satin, hole].forEach(proposal => {
+      expect(proposal.source.hatchEvidence.enabledRuleIds).toEqual(HATCH_EVIDENCE_RULE_IDS);
+      expect(proposal.source.hatchEvidence).not.toHaveProperty('activationMode');
+    });
+  });
+
+  it('is deterministic across repeated controlled planning and does not mutate its input', () => {
+    const source = regionWithHoles('controlled-repeat', [squareHole(0.8)]);
+    const before = structuredClone(source);
+    const first = planOne(source, 'primary_shape', controlledConfig([HOLE_MIN_SIZE]));
+    const second = planOne(source, 'primary_shape', controlledConfig([HOLE_MIN_SIZE]));
+    expect(second).toEqual(first);
+    expect(source).toEqual(before);
+    expect(crypto.createHash('sha256').update(JSON.stringify(second)).digest('hex'))
+      .toBe(crypto.createHash('sha256').update(JSON.stringify(first)).digest('hex'));
   });
 });
