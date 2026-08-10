@@ -18,6 +18,10 @@ import { createDiagnosticLabAuditInputFromFixture } from '@/lib/engineV2Bridge/d
 import { experimentalEngineV2Base44Bridge } from '@/lib/engineV2Bridge/featureFlags';
 import { runControlledEngineV2Audit } from '@/lib/engineV2Bridge/runControlledEngineV2Audit';
 
+const YoshiT2RunnerPanel = import.meta.env.DEV
+  ? React.lazy(() => import('@/components/diagnostic/YoshiT2RunnerPanel'))
+  : null;
+
 // Session cache keyed by SHA-256 (never persisted to DB).
 const sessionCache = new Map();
 const DIAGNOSTIC_MINIMAL_FIXTURE_PROVENANCE = Object.freeze({
@@ -201,6 +205,18 @@ export default function EngineV2DiagnosticLab() {
             result={engineV2AuditResult}
             error={engineV2AuditError}
           />
+        )}
+
+        {tab === 'inspector' && import.meta.env.DEV && YoshiT2RunnerPanel && (
+          <React.Suspense
+            fallback={(
+              <div className="rounded-xl border border-cyan-500/20 bg-[#11141c] p-4 text-xs text-cyan-200">
+                Cargando runner diagnóstico T2…
+              </div>
+            )}
+          >
+            <YoshiT2RunnerPanel />
+          </React.Suspense>
         )}
 
         {tab === 'inspector' && (
