@@ -11,7 +11,11 @@ import {
   validateHatchEvidenceRule,
 } from './model.js';
 import { HATCH_OVERLAP_EVIDENCE_RULES, HATCH_OVERLAP_REVIEW_AUDIT } from './overlaps.js';
-import { DEFAULT_HATCH_OVERLAP_RULE_FLAGS, HATCH_OVERLAP_RULE_IDS } from './overlapProfiles.js';
+import {
+  DEFAULT_HATCH_OVERLAP_RULE_FLAGS,
+  HATCH_OVERLAP_CONTROLLED_OPT_IN_POLICY,
+  HATCH_OVERLAP_RULE_IDS,
+} from './overlapProfiles.js';
 import {
   DEFAULT_HATCH_EVIDENCE_RULE_FLAGS,
   HATCH_EVIDENCE_CONTROLLED_OPT_IN_POLICY,
@@ -84,6 +88,7 @@ export const HATCH_EVIDENCE_REGISTRY = Object.freeze({
     independentlyConfigurable: true,
     defaultEnabled: false,
     integrationStatus: 'partial',
+    controlledOptInPolicy: HATCH_OVERLAP_CONTROLLED_OPT_IN_POLICY,
   })]),
   inactivePhases: HATCH_INACTIVE_EVIDENCE_PHASES,
   reviewedClosedOverlapAudit: HATCH_OVERLAP_REVIEW_AUDIT,
@@ -168,6 +173,43 @@ function validControlledOptInPolicy(policy) {
   }
 }
 
+function validOverlapControlledOptInPolicy(policy) {
+  try {
+    const expected = HATCH_OVERLAP_CONTROLLED_OPT_IN_POLICY;
+    if (!policy || typeof policy !== 'object' || Array.isArray(policy)) return false;
+    if (Object.getPrototypeOf(policy) !== Object.prototype || !Object.isFrozen(policy)) return false;
+    const actualKeys = Reflect.ownKeys(policy);
+    const expectedKeys = Reflect.ownKeys(expected);
+    if (!ownKeysMatch(actualKeys, expectedKeys)) return false;
+    const descriptors = Object.getOwnPropertyDescriptors(policy);
+    const expectedDescriptors = Object.getOwnPropertyDescriptors(expected);
+    if (!expectedKeys.every(key => frozenDataDescriptorMatches(
+      descriptors[key],
+      expectedDescriptors[key],
+    ))) return false;
+    const valueFor = key => descriptors[key].value;
+    if (valueFor('activationMode') !== expectedDescriptors.activationMode.value
+      || valueFor('internal') !== true
+      || valueFor('experimental') !== true
+      || valueFor('defaultEnabled') !== false
+      || valueFor('allOnAllowed') !== false
+      || valueFor('crossPhaseCombinationsAllowed') !== false
+      || valueFor('productionIntegration') !== false) return false;
+    return validExactFrozenArray(
+      valueFor('operationalRuleIds'),
+      expectedDescriptors.operationalRuleIds.value,
+    ) && validExactFrozenArray(
+      valueFor('diagnosticRuleIds'),
+      expectedDescriptors.diagnosticRuleIds.value,
+    ) && validExactFrozenArray(
+      valueFor('unauthorizedRuleIds'),
+      expectedDescriptors.unauthorizedRuleIds.value,
+    );
+  } catch {
+    return false;
+  }
+}
+
 export function validateHatchEvidenceRegistry(registry = HATCH_EVIDENCE_REGISTRY) {
   const errors = [];
   const rules = Array.isArray(registry?.rules) ? registry.rules : [];
@@ -216,6 +258,9 @@ export function validateHatchEvidenceRegistry(registry = HATCH_EVIDENCE_REGISTRY
     || JSON.stringify(cIntegration.ruleIds) !== JSON.stringify(HATCH_OVERLAP_RULE_IDS)
     || cIntegration.integrationStatus !== 'partial') {
     errors.push({ code: 'HATCH_EVIDENCE_C_PARTIAL_INTEGRATION_INVALID' });
+  }
+  if (!validOverlapControlledOptInPolicy(cIntegration?.controlledOptInPolicy)) {
+    errors.push({ code: 'HATCH_OVERLAP_CONTROLLED_OPT_IN_POLICY_INVALID' });
   }
   const integrations = [registry?.activeIntegration, ...(registry?.partialIntegrations || [])];
   if (integrations.some(integration => integration?.phase === 'G_Lettering'
