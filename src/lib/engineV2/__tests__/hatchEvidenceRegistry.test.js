@@ -36,6 +36,10 @@ import {
   canonicalizeHatchEvidenceControlledFallbackReasonCodes,
   resolveHatchEvidenceControlledOptInPolicy,
 } from '../rules/hatchEvidence/profiles.js';
+import {
+  HATCH_OVERLAP_CONTROLLED_OPT_IN_MODE,
+  HATCH_OVERLAP_CONTROLLED_OPT_IN_POLICY,
+} from '../rules/hatchEvidence/overlapProfiles.js';
 
 const phaseCounts = Object.freeze({
   A_Anchuras: 5,
@@ -271,6 +275,68 @@ function expectControlledPolicyInvalid(policy) {
   expect(result).toEqual({
     valid: false,
     errors: [{ code: 'HATCH_EVIDENCE_CONTROLLED_OPT_IN_POLICY_INVALID' }],
+    warnings: [],
+  });
+}
+
+function registryWithOverlapControlledPolicy(controlledOptInPolicy) {
+  return Object.freeze({
+    ...HATCH_EVIDENCE_REGISTRY,
+    partialIntegrations: Object.freeze(HATCH_EVIDENCE_REGISTRY.partialIntegrations.map(integration => (
+      integration.phase === 'C_Solapes'
+        ? Object.freeze({ ...integration, controlledOptInPolicy })
+        : integration
+    ))),
+  });
+}
+
+function overlapControlledPolicyCopy(overrides = {}) {
+  return freezeDeep({
+    ...clone(HATCH_OVERLAP_CONTROLLED_OPT_IN_POLICY),
+    ...overrides,
+  });
+}
+
+const OVERLAP_CONTROLLED_POLICY_ARRAY_FIELDS = Object.freeze([
+  'operationalRuleIds',
+  'diagnosticRuleIds',
+  'unauthorizedRuleIds',
+]);
+
+function freezeOverlapPolicyArrays(policy, mutableField = null) {
+  OVERLAP_CONTROLLED_POLICY_ARRAY_FIELDS.forEach(field => {
+    if (field !== mutableField && Array.isArray(policy[field])) Object.freeze(policy[field]);
+  });
+  return policy;
+}
+
+function overlapPolicyWithArray(field, value) {
+  const policy = clone(HATCH_OVERLAP_CONTROLLED_OPT_IN_POLICY);
+  policy[field] = value;
+  freezeOverlapPolicyArrays(policy);
+  return Object.freeze(policy);
+}
+
+function overlapPolicyWithAccessor(field, descriptor) {
+  const policy = clone(HATCH_OVERLAP_CONTROLLED_OPT_IN_POLICY);
+  delete policy[field];
+  freezeOverlapPolicyArrays(policy);
+  Object.defineProperty(policy, field, {
+    enumerable: true,
+    configurable: true,
+    ...descriptor,
+  });
+  return Object.freeze(policy);
+}
+
+function expectOverlapControlledPolicyInvalid(policy) {
+  let result;
+  expect(() => {
+    result = validateHatchEvidenceRegistry(registryWithOverlapControlledPolicy(policy));
+  }).not.toThrow();
+  expect(result).toEqual({
+    valid: false,
+    errors: [{ code: 'HATCH_OVERLAP_CONTROLLED_OPT_IN_POLICY_INVALID' }],
     warnings: [],
   });
 }
@@ -1182,5 +1248,195 @@ describe('R03 controlled Hatch A/B policy', () => {
       fallbackReasonCodes: ['INVALID_HATCH_EVIDENCE_RULE_FLAG_VALUE'],
     });
     expect(config).toEqual(before);
+  });
+});
+
+describe('R04 controlled Hatch C overlap policy registry', () => {
+  it('publishes the official internal experimental singleton with only C1 operational', () => {
+    const integration = HATCH_EVIDENCE_REGISTRY.partialIntegrations
+      .find(item => item.phase === 'C_Solapes');
+    expect(HATCH_OVERLAP_CONTROLLED_OPT_IN_MODE).toBe('controlled-opt-in');
+    expect(HATCH_OVERLAP_CONTROLLED_OPT_IN_POLICY).toEqual({
+      activationMode: 'controlled-opt-in',
+      internal: true,
+      experimental: true,
+      operationalRuleIds: [CONTOUR_LAST_RULE_ID],
+      diagnosticRuleIds: [],
+      unauthorizedRuleIds: [COLOR_GROUP_HEURISTIC_RULE_ID, MULTILAYER_DEPENDENCY_RULE_ID],
+      defaultEnabled: false,
+      allOnAllowed: false,
+      crossPhaseCombinationsAllowed: false,
+      productionIntegration: false,
+    });
+    expect(integration.controlledOptInPolicy).toBe(HATCH_OVERLAP_CONTROLLED_OPT_IN_POLICY);
+    expect(HATCH_EVIDENCE_REGISTRY.productionIntegration).toBe(false);
+    expectDeeplyFrozen(HATCH_OVERLAP_CONTROLLED_OPT_IN_POLICY);
+    expect(validateHatchEvidenceRegistry()).toEqual({ valid: true, errors: [], warnings: [] });
+  });
+
+  it('accepts an independent structurally identical deeply frozen policy copy', () => {
+    const policy = overlapControlledPolicyCopy();
+    expect(policy).not.toBe(HATCH_OVERLAP_CONTROLLED_OPT_IN_POLICY);
+    OVERLAP_CONTROLLED_POLICY_ARRAY_FIELDS.forEach(field => {
+      expect(policy[field]).not.toBe(HATCH_OVERLAP_CONTROLLED_OPT_IN_POLICY[field]);
+      expect(Object.getPrototypeOf(policy[field])).toBe(Array.prototype);
+    });
+    expectDeeplyFrozen(policy);
+    expect(validateHatchEvidenceRegistry(registryWithOverlapControlledPolicy(policy)))
+      .toEqual({ valid: true, errors: [], warnings: [] });
+  });
+
+  it('rejects a mutable outer policy while preserving its content', () => {
+    const policy = freezeOverlapPolicyArrays(clone(HATCH_OVERLAP_CONTROLLED_OPT_IN_POLICY));
+    const before = clone(policy);
+    expect(Object.isFrozen(policy)).toBe(false);
+    expectOverlapControlledPolicyInvalid(policy);
+    expect(policy).toEqual(before);
+  });
+
+  it.each(OVERLAP_CONTROLLED_POLICY_ARRAY_FIELDS)(
+    'rejects isolated mutable overlap policy array %s',
+    mutableField => {
+      const policy = freezeOverlapPolicyArrays(
+        clone(HATCH_OVERLAP_CONTROLLED_OPT_IN_POLICY),
+        mutableField,
+      );
+      Object.freeze(policy);
+      expect(Object.isFrozen(policy[mutableField])).toBe(false);
+      expectOverlapControlledPolicyInvalid(policy);
+    },
+  );
+
+  it('rejects a missing required property', () => {
+    const policy = clone(HATCH_OVERLAP_CONTROLLED_OPT_IN_POLICY);
+    delete policy.defaultEnabled;
+    expectOverlapControlledPolicyInvalid(freezeDeep(policy));
+  });
+
+  it('rejects additional enumerable, hidden and Symbol properties', () => {
+    expectOverlapControlledPolicyInvalid(overlapControlledPolicyCopy({ future: true }));
+
+    const hidden = clone(HATCH_OVERLAP_CONTROLLED_OPT_IN_POLICY);
+    Object.defineProperty(hidden, 'hidden', { value: true, enumerable: false });
+    expectOverlapControlledPolicyInvalid(freezeDeep(hidden));
+
+    const symbolic = clone(HATCH_OVERLAP_CONTROLLED_OPT_IN_POLICY);
+    symbolic[Symbol('hidden')] = true;
+    expectOverlapControlledPolicyInvalid(freezeDeep(symbolic));
+  });
+
+  it('rejects an anomalous outer prototype', () => {
+    const policy = clone(HATCH_OVERLAP_CONTROLLED_OPT_IN_POLICY);
+    Object.setPrototypeOf(policy, { customOverlapPolicyPrototype: true });
+    expectOverlapControlledPolicyInvalid(freezeDeep(policy));
+  });
+
+  it('rejects getters and setters without executing them', () => {
+    let getterCalls = 0;
+    let setterCalls = 0;
+    expectOverlapControlledPolicyInvalid(overlapPolicyWithAccessor('activationMode', {
+      get() {
+        getterCalls += 1;
+        return HATCH_OVERLAP_CONTROLLED_OPT_IN_MODE;
+      },
+    }));
+    expectOverlapControlledPolicyInvalid(overlapPolicyWithAccessor('productionIntegration', {
+      set() {
+        setterCalls += 1;
+      },
+    }));
+    expectOverlapControlledPolicyInvalid(overlapPolicyWithAccessor('activationMode', {
+      get() {
+        getterCalls += 1;
+        throw new Error('getter must not execute');
+      },
+    }));
+    expect(getterCalls).toBe(0);
+    expect(setterCalls).toBe(0);
+  });
+
+  it.each([
+    null,
+    [],
+    'controlled-opt-in',
+    1,
+  ])('rejects an incorrect outer policy type %#', policy => {
+    expectOverlapControlledPolicyInvalid(policy);
+  });
+
+  it.each([
+    ['getPrototypeOf', { getPrototypeOf() { throw new Error('hostile getPrototypeOf'); } }],
+    ['ownKeys', { ownKeys() { throw new Error('hostile ownKeys'); } }],
+    ['getOwnPropertyDescriptor', {
+      getOwnPropertyDescriptor() { throw new Error('hostile getOwnPropertyDescriptor'); },
+    }],
+  ])('rejects a hostile overlap policy Proxy whose %s trap throws', (_trapName, handler) => {
+    const target = overlapControlledPolicyCopy();
+    expectOverlapControlledPolicyInvalid(new Proxy(target, handler));
+    expectDeeplyFrozen(target);
+  });
+
+  it.each(OVERLAP_CONTROLLED_POLICY_ARRAY_FIELDS)(
+    'rejects an incorrect type for overlap policy array %s',
+    field => expectOverlapControlledPolicyInvalid(overlapControlledPolicyCopy({ [field]: {} })),
+  );
+
+  it('rejects unknown, duplicate, incorrectly ordered and divergent classifications', () => {
+    expectOverlapControlledPolicyInvalid(overlapControlledPolicyCopy({
+      operationalRuleIds: ['FUTURE-C-RULE'],
+    }));
+    expectOverlapControlledPolicyInvalid(overlapControlledPolicyCopy({
+      unauthorizedRuleIds: [COLOR_GROUP_HEURISTIC_RULE_ID, COLOR_GROUP_HEURISTIC_RULE_ID],
+    }));
+    expectOverlapControlledPolicyInvalid(overlapControlledPolicyCopy({
+      unauthorizedRuleIds: [MULTILAYER_DEPENDENCY_RULE_ID, COLOR_GROUP_HEURISTIC_RULE_ID],
+    }));
+    expectOverlapControlledPolicyInvalid(overlapControlledPolicyCopy({
+      operationalRuleIds: [COLOR_GROUP_HEURISTIC_RULE_ID],
+      unauthorizedRuleIds: [CONTOUR_LAST_RULE_ID, MULTILAYER_DEPENDENCY_RULE_ID],
+    }));
+  });
+
+  it('rejects extra keys, custom prototypes and accessors inside policy arrays', () => {
+    const enumerable = [...HATCH_OVERLAP_CONTROLLED_OPT_IN_POLICY.unauthorizedRuleIds];
+    enumerable.future = true;
+    expectOverlapControlledPolicyInvalid(overlapPolicyWithArray('unauthorizedRuleIds', enumerable));
+
+    const hidden = [...HATCH_OVERLAP_CONTROLLED_OPT_IN_POLICY.unauthorizedRuleIds];
+    Object.defineProperty(hidden, 'hidden', { value: true, enumerable: false });
+    expectOverlapControlledPolicyInvalid(overlapPolicyWithArray('unauthorizedRuleIds', hidden));
+
+    const symbolic = [...HATCH_OVERLAP_CONTROLLED_OPT_IN_POLICY.unauthorizedRuleIds];
+    symbolic[Symbol('hidden')] = true;
+    expectOverlapControlledPolicyInvalid(overlapPolicyWithArray('unauthorizedRuleIds', symbolic));
+
+    const prototyped = [...HATCH_OVERLAP_CONTROLLED_OPT_IN_POLICY.unauthorizedRuleIds];
+    Object.setPrototypeOf(prototyped, Object.create(Array.prototype));
+    expectOverlapControlledPolicyInvalid(overlapPolicyWithArray('unauthorizedRuleIds', prototyped));
+
+    let getterCalls = 0;
+    const accessor = [...HATCH_OVERLAP_CONTROLLED_OPT_IN_POLICY.unauthorizedRuleIds];
+    Object.defineProperty(accessor, '0', {
+      get() {
+        getterCalls += 1;
+        return COLOR_GROUP_HEURISTIC_RULE_ID;
+      },
+      enumerable: true,
+    });
+    expectOverlapControlledPolicyInvalid(overlapPolicyWithArray('unauthorizedRuleIds', accessor));
+    expect(getterCalls).toBe(0);
+  });
+
+  it.each([
+    ['productionIntegration', true],
+    ['productionIntegration', 'false'],
+    ['internal', false],
+    ['experimental', false],
+    ['defaultEnabled', true],
+    ['allOnAllowed', true],
+    ['crossPhaseCombinationsAllowed', true],
+    ['activationMode', 'future'],
+  ])('rejects divergent overlap policy scalar %s', (field, value) => {
+    expectOverlapControlledPolicyInvalid(overlapControlledPolicyCopy({ [field]: value }));
   });
 });
